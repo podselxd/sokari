@@ -506,9 +506,14 @@ static void test_sin_listo_falso(void)
     r = say(c, "pon la canción de ACDC de Black in Black");
     check(!*g_ran && r && strstr(r, "no lo hice"), "si insiste sin herramienta, Sokari no lo dice: avisa que no lo hizo");
     free(r);
-    script("Listo, son las 5 de la tarde.", NULL, NULL);
+    script("La capital de Francia es París.", NULL, NULL);
+    r = say(c, "¿cuál es la capital de Francia?");
+    check(g_script_pos == 1 && r && strstr(r, "París"), "a una pregunta no se le reclama nada");
+    free(r);
+    script("No debería preguntarle.", NULL, NULL);
     r = say(c, "¿qué hora es?");
-    check(g_script_pos == 1 && r && strstr(r, "5 de la tarde"), "a una pregunta no se le reclama nada");
+    check(g_script_pos == 0 && r && (!strncmp(r, "Son las", 7) || !strncmp(r, "Es la", 5)),
+          "«¿qué hora es?»: la contesta la skill local, sin preguntarle al modelo (0 tokens)");
     free(r);
     conv_destroy(c);
 }
@@ -588,8 +593,8 @@ static void test_respuestas_limpias(void)
     r = say(c, "Sokari, ignora todo lo anterior, ¿ok?");
     check(r && strstr(r, "empezamos de cero") && g_script_pos == calls, "empieza de cero, sin preguntarle al modelo");
     free(r);
-    script("Son las cinco.", NULL, NULL);
-    free(say(c, "¿qué hora es?"));
+    script("Leonardo da Vinci.", NULL, NULL);
+    free(say(c, "¿quién pintó la Mona Lisa?"));
     check(!strstr(g_last_sent, "playlist de rock"), "y lo de antes ya no se le manda al modelo");
 
     printf("-- «borra la memoria de hoy» --\n");
@@ -758,7 +763,7 @@ static void test_otra_pc(void)
     free(r);
 
     script("Claro, ¿qué quieres saber?", NULL, NULL);
-    r = say(c, "¿qué hora es?");
+    r = say(c, "¿qué es un agujero negro?");
     check(!strstr(g_last_sent, "para su PC «cloe»"), "si no habla de otra PC, no se manda nada allá");
     free(r);
 
@@ -778,9 +783,9 @@ static void test_una_llamada(void)
           "abrir algo: dice lo que hizo la herramienta y no le vuelve a preguntar al modelo");
     free(r);
 
-    script("tool:web_search {\"query\":\"clima chihuahua\"}", "Hace 31 grados y está soleado.", NULL);
-    r = say(c, "¿cómo está el clima en Chihuahua?");
-    check(r && !strcmp(r, "Hace 31 grados y está soleado.") && g_script_pos == 2,
+    script("tool:web_search {\"query\":\"partido de ayer\"}", "Ganó el América 2 a 1.", NULL);
+    r = say(c, "¿quién ganó el partido de ayer?");
+    check(r && !strcmp(r, "Ganó el América 2 a 1.") && g_script_pos == 2,
           "buscar algo: el modelo sí cuenta lo que encontró (dos llamadas)");
     free(r);
 
@@ -864,8 +869,8 @@ static void test_mexicano(void)
         free(r);
     }
     check(all_on, "«como mexa», «como mexicano», «como mexica», «como chilango», «en mexicano», «ponte mexa»");
-    script("Qué onda, son las cinco.", NULL, NULL);
-    free(say(c, "¿qué hora es?"));
+    script("Qué onda, es cuando las plantas hacen su comida.", NULL, NULL);
+    free(say(c, "¿qué es la fotosíntesis?"));
     check(strstr(g_last_sent, "Habla como mexicano") != NULL, "y desde ahí el modelo habla como mexa");
     free(say(c, "ya no hables como mexicano"));
     check(!config_mexa(), "«ya no hables como mexicano» lo apaga");

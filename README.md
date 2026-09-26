@@ -104,6 +104,17 @@ Entiende de qué PC hablas aunque no digas su nombre exacto: "Chloe" es "cloe", 
 ## Qué puede hacer
 
 - **Comandos al instante, sin IA:** "ponle play", "pausa", "la siguiente", "sube el volumen", "volumen al 30", "minimiza la pestaña", "maximízala", "cierra la pestaña", "abre archivos", "abre mis descargas", "abre Opera", "oprime Windows", "dale enter", "presiona escape tres veces", "control zeta" y "gracias" se hacen en tu PC, aunque vengan con saludo ("¿cómo andas? oye, ponle play"). Son inmediatos, no gastan cupo de Groq y no dependen de que el modelo entienda. Lo que trae algo más ("pon la canción de AC/DC") va al modelo.
+- **Skills locales, sin IA (0 tokens):** lo de todos los días lo contesta tu PC, sin gastar cupo ni tokens. Las ves y las apagas en Configuración → **Skills**:
+  - **Hora y fecha:** "¿qué hora es?", "¿qué día es hoy?", "¿cuánto falta para Navidad?", "¿cuánto falta para las 5?".
+  - **Temporizadores y cronómetro:** "pon un temporizador de 10 minutos", "avísame en media hora", "¿cuánto le queda?", "cancela el temporizador", "inicia el cronómetro", "¿cuánto lleva?". Al terminar suena y te avisa.
+  - **Alarmas y recordatorios:** "despiértame a las 7", "pon una alarma a las 10 de la noche", "¿qué alarmas tengo?", "cancela las alarmas", "recuérdame sacar la ropa en 20 minutos", "recuérdame mañana a las 9 pagar la luz". Se guardan como los recordatorios de siempre: siguen ahí si cierras Sokari.
+  - **Cuentas y conversiones:** "¿cuánto es 25 por 4?", "raíz cuadrada de 144", "el 15 por ciento de 300", "¿cuántas libras son 70 kilos?", "convierte 100 grados Fahrenheit a centígrados".
+  - **El clima:** "¿cómo está el clima?", "¿va a llover mañana?", "clima en Monterrey". Dile tu ciudad una vez ("mi ciudad es Chihuahua") o ponla en Configuración → Skills. Sale de [Open-Meteo](https://open-meteo.com), gratis y sin key.
+  - **Notas y pendientes:** "anota comprar leche", "agrega pagar la luz a mis pendientes", "¿qué tengo pendiente?", "tacha comprar leche". Van en `notas.json`, junto a tu memoria.
+  - **Cómo va la PC:** "¿cuánta batería tengo?", "¿cómo va la compu?".
+  - **Plática:** "hola", "buenos días", "¿cómo estás?", "cuéntame un chiste", "¿qué puedes hacer?".
+  
+  Solo contestan lo que es claramente para ellas: si la frase trae algo más ("¿qué hora es en Japón?", "anota la lista en un Word"), va a la IA. La ventana de Sokari dice si cada respuesta fue **sin IA (0 tokens)** o cuántos tokens gastó. Tu voz se sigue pasando a texto con Groq: eso no gasta tokens del modelo, pero sí su cupo de audio.
 - **Entiende español de México:** "púchale/pícale play", "súbele un buen", "súbele al máximo", "bájale tantito", "cámbiale a la que sigue", "ponme otra rola", "quítale el volumen"; "simón", "sale", "órale", "a huevo", "de una" cuentan como sí, y "nel", "ni madres", "ni de chiste" como no; "¿mande?" repite la pregunta; "ahí nos vidrios" o "ahí la vemos" se despiden. Todo eso se entiende en tu PC, sin gastar cupo.
 - **Habla como mexa solo si le pides:** de fábrica contesta en español neutro. "Háblame como mexa" (o "como mexicano", "como mexica", "como chilango", "en mexicano", "ponte mexa") lo cambia y se queda así; "habla normal" o "ya no hables como mexicano" lo regresa.
 - **Empezar de cero:** "ignora todo lo anterior" u "olvida lo anterior" hace que la conversación de ahora se olvide, sin pasar por el modelo. "Borra la memoria de hoy" (o "de todo") borra de la memoria lo que han hablado; como es borrar, pide un "sí". Tus datos guardados no se tocan.
@@ -243,6 +254,7 @@ Si editas `tools.json` o `system_prompt.txt`, el siguiente `mingw32-make` los me
 | `wakeword.c`, `nn_*.c` | Detector de "Hey Sokari" (red neuronal con AVX2 si tu CPU lo tiene) |
 | `groq.c`, `http.c` | Groq (Whisper y chat) con rotación de modelos y control de cupo |
 | `agent.c`, `tools*.c`, `calc.c`, `keys.c` | Conversación y herramientas (`keys.c` entiende las teclas como las dices) |
+| `intents.c`, `skills*.c` | Lo que se contesta en tu PC sin IA: comandos, hora, temporizadores, alarmas, cuentas, clima, notas, PC y plática |
 | `tts.c`, `audio.c`, `sounds.c` | Voces de Windows, micrófono, bocinas y tonos |
 | `sphere.c`, `ui_main.c` | Esfera animada, modos de pantalla y subtítulos |
 | `ui_settings.c`, `tray.c` | Ventana de Inicio y de configuración, e ícono de la bandeja |

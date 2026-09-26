@@ -306,6 +306,26 @@ static char *format_number(double x)
     return str_printf("%.17g", x);
 }
 
+bool calc_evaluate(const char *expression, double *out)
+{
+    Parser *ps = xcalloc(1, sizeof *ps);
+    ps->p = expression ? expression : "";
+    bool ok = false;
+    if (setjmp(ps->fail) == 0) {
+        Value v = expr(ps);
+        skip_ws(ps);
+        ok = !*ps->p && !v.is_list && isfinite(v.num);
+        if (ok) *out = v.num;
+    }
+    free(ps);
+    return ok;
+}
+
+char *calc_format(double x)
+{
+    return format_number(x);
+}
+
 char *tool_calcular(const cJSON *a)
 {
     char *expresion = str_trim(arg_str(a, "expresion"));

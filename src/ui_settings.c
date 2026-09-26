@@ -21,6 +21,7 @@
 #include "memory.h"
 #include "mesh.h"
 #include "resources.h"
+#include "skills.h"
 #include "sounds.h"
 #include "tts.h"
 #include "ui.h"
@@ -42,9 +43,9 @@
 #define C_NAV_SEL RGB(0x28, 0x26, 0x3a)
 #define C_LINK RGB(0x9d, 0x92, 0xff)
 
-enum { SEC_HOME, SEC_ACCOUNT, SEC_DISPLAY, SEC_AUDIO, SEC_GENERAL, SEC_DEVICES, SEC_AI, SEC_COUNT };
-static const wchar_t *SECTION_NAMES[SEC_COUNT] = {L"Inicio", L"Cuenta", L"Pantalla", L"Voz y audio", L"General",
-                                                  L"Dispositivos", L"IA de respaldo"};
+enum { SEC_HOME, SEC_ACCOUNT, SEC_DISPLAY, SEC_AUDIO, SEC_GENERAL, SEC_SKILLS, SEC_DEVICES, SEC_AI, SEC_COUNT };
+static const wchar_t *SECTION_NAMES[SEC_COUNT] = {L"Inicio",  L"Cuenta", L"Pantalla",     L"Voz y audio",
+                                                  L"General", L"Skills", L"Dispositivos", L"IA de respaldo"};
 
 typedef enum {
     W_LABEL,
@@ -60,7 +61,8 @@ typedef enum {
 } WType;
 
 enum {
-    F_API, F_NAME, F_PROFILE_PW, F_STOP, F_MESH, F_NVIDIA, F_DEEPSEEK, F_OPENROUTER, F_GLM, F_AI_ORDER, F_EDIT_COUNT,
+    F_API, F_NAME, F_PROFILE_PW, F_STOP, F_MESH, F_NVIDIA, F_DEEPSEEK, F_OPENROUTER, F_GLM, F_AI_ORDER, F_CITY,
+    F_EDIT_COUNT,
 };
 
 enum {
@@ -109,6 +111,7 @@ static struct {
     int subtitles;
     int show_only_talking;
     int full_access; /* acceso completo: no pregunta nada salvo antes de borrar */
+    int skill_on[16]; /* las skills locales prendidas (en el orden de skills_get) */
     TtsVoice *voices;
     int nvoices;
     int voice_index;
@@ -562,6 +565,25 @@ static void layout(void)
                         L"instrucciones escondidas, podría obedecerlas sin avisarte. Apagado, pregunta antes de "
                         L"acciones delicadas cuando leyó algo de afuera.");
         break;
+    case SEC_SKILLS: {
+        y = layout_help(x, y - dp(6), w,
+                        L"Contestan en tu PC, sin gastar nada de IA (0 tokens): «¿qué hora es?», «pon un temporizador "
+                        L"de 10 minutos», «¿va a llover?», «anota comprar leche». Lo que no entienden se lo pasan a la "
+                        L"IA. Apaga las que no quieras.") +
+            dp(6);
+        static const wchar_t *const LABELS[] = {L"Hora y fecha",          L"Temporizadores y cronómetro",
+                                                L"Alarmas y recordatorios", L"Cuentas y conversiones",
+                                                L"El clima",              L"Notas y pendientes",
+                                                L"Cómo va la PC",         L"Saludos, plática y chistes"};
+        int n = skills_count() < 8 ? skills_count() : 8, half = (n + 1) / 2, col = (w - dp(16)) / 2;
+        for (int i = 0; i < n; i++)
+            layout_toggle(x + (i / half) * (col + dp(16)), y + (i % half) * dp(42), col, &S.skill_on[i], LABELS[i]);
+        y += half * dp(42) + dp(6);
+        y = layout_edit(x, y, w, L"Tu ciudad (para el clima)", F_CITY, NULL) - dp(8);
+        y = layout_help(x, y, w, L"También se la puedes decir: «mi ciudad es Chihuahua». El clima sale de Open-Meteo, "
+                                 L"gratis y sin key.");
+        break;
+    }
     case SEC_AI: {
         y = layout_help(x, y - dp(6), w,
                         L"Cuando se te acaba el cupo gratis de Groq, Sokari sigue con estas, en orden. Todas son "
@@ -893,6 +915,10 @@ static void load_values(void)
     S.subtitles = S.cfg.subtitles;
     S.show_only_talking = S.cfg.show_only_talking;
     S.full_access = S.cfg.full_access;
+    w = utf8_to_wide(S.cfg.city);
+    SetWindowTextW(S.edits[F_CITY], w);
+    free(w);
+    for (int i = 0; i < skills_count() && i < 16; i++) S.skill_on[i] = config_skill_enabled(skills_get(i)->id);
     S.volume = S.cfg.volume;
     S.sensitivity = S.cfg.wake_sensitivity;
     S.autostart = autostart_is_enabled();
@@ -992,6 +1018,15 @@ static void save(void)
     }
     free(c.ai_order);
     c.ai_order = clean_ai_order(edit_text(F_AI_ORDER));
+    free(c.city);
+    c.city = edit_text(F_CITY);
+    StrBuf off;
+    sb_init(&off);
+    for (int i = 0; i < skills_count() && i < 16; i++)
+        if (!S.skill_on[i]) sb_appendf(&off, "%s%s", off.len ? "," : "", skills_get(i)->id);
+    free(c.skills_off);
+    c.skills_off = off.data ? sb_steal(&off) : xstrdup("");
+    sb_free(&off);
     c.display_mode = S.display_mode;
     c.resolution = RESOLUTIONS[S.resolution_index];
     c.sphere_style = S.style;

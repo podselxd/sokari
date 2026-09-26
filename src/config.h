@@ -29,6 +29,8 @@ typedef struct {
     /* IA de respaldo (opcionales) y en qué orden se usan: "groq,nvidia,deepseek,openrouter,glm". */
     char *nvidia_key, *deepseek_key, *openrouter_key, *glm_key;
     char *ai_order;
+    char *skills_off; /* skills locales apagadas: "clima,chistes" */
+    char *city;       /* tu ciudad, para el clima */
     int display_mode;
     int resolution; /* 0 = automática, si no el alto en píxeles (720, 1080, 1440, 2160) */
     int volume;     /* 0-100, volumen de la voz de Sokari (no el del sistema) */
@@ -77,6 +79,11 @@ char *config_provider_key(const char *provider);
 char *config_ai_order(void);
 #define DEFAULT_AI_ORDER "groq,nvidia,deepseek,openrouter,glm"
 char *config_stop_word(void);
+/* ¿Está prendida esta skill local ("clima", "hora"…)? Todas vienen prendidas. */
+bool config_skill_enabled(const char *id);
+/* Tu ciudad para el clima ("" si no la has dicho) y guardarla. */
+char *config_city(void);
+void config_set_city(const char *city);
 char *config_user_name(void);
 char *config_mesh_secret(bool create);
 /* Por qué ese texto no sirve como secreto de malla (una IP, el nombre de una

@@ -99,6 +99,10 @@ bool clipboard_set_file(const wchar_t *path);
 
 /* calculadora y malla */
 char *tool_calcular(const cJSON *a);
+/* La misma calculadora sin herramienta: "25*4" -> 100. false si no se puede. */
+bool calc_evaluate(const char *expression, double *out);
+/* 100 -> "100", 2.5 -> "2.5" (heap). */
+char *calc_format(double x);
 char *tool_registrar_dispositivo(const cJSON *a);
 char *tool_gestionar_dispositivo(const cJSON *a);
 char *tool_cambiar_permisos(const cJSON *a);

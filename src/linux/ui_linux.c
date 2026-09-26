@@ -27,6 +27,7 @@
 #include "mesh.h"
 #include "resource.h"
 #include "resources.h"
+#include "skills.h"
 #include "sphere.h"
 #include "update.h"
 #include "util.h"
@@ -309,7 +310,8 @@ static void request_talk(void)
 /* ------------------------------------------------------ Configuración --- */
 
 typedef struct {
-    GtkWidget *key, *name, *mic, *out, *volume, *subtitles, *duck, *full, *autostart, *style;
+    GtkWidget *key, *name, *mic, *out, *volume, *subtitles, *duck, *full, *autostart, *style, *city;
+    GtkWidget *skills[16]; /* las skills locales, en el orden de skills_get */
     bool first_run;
 } SettingsForm;
 
@@ -378,6 +380,16 @@ static void on_settings_response(GtkDialog *d, int response, gpointer u)
         cfg.autostart = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->autostart));
         cfg.sphere_style = gtk_combo_box_get_active(GTK_COMBO_BOX(f->style)) == 1 ? 1 : 0;
         U.want_style = cfg.sphere_style;
+        free(cfg.city);
+        cfg.city = str_trim(gtk_entry_get_text(GTK_ENTRY(f->city)));
+        StrBuf off;
+        sb_init(&off);
+        for (int i = 0; i < skills_count() && i < 16; i++)
+            if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->skills[i])))
+                sb_appendf(&off, "%s%s", off.len ? "," : "", skills_get(i)->id);
+        free(cfg.skills_off);
+        cfg.skills_off = off.data ? sb_steal(&off) : xstrdup("");
+        sb_free(&off);
         config_apply(&cfg);
         bool saved = config_save();
         autostart_set(cfg.autostart);
@@ -451,6 +463,26 @@ static void settings_open(bool first_run)
     gtk_grid_attach(GTK_GRID(grid), f->full, 0, r++, 2, 1);
     f->autostart = check("Abrir Sokari al iniciar tu sesión", autostart_is_enabled());
     gtk_grid_attach(GTK_GRID(grid), f->autostart, 0, r++, 2, 1);
+
+    /* Skills locales: contestan sin IA (0 tokens). Dos columnas. */
+    GtkWidget *sk = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(sk), "<b>Skills</b>: contestan en tu PC, sin gastar nada de IA (0 tokens). "
+                                        "Lo que no entienden se lo pasan a la IA.");
+    gtk_label_set_line_wrap(GTK_LABEL(sk), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(sk), 0);
+    gtk_widget_set_margin_top(sk, 8);
+    gtk_grid_attach(GTK_GRID(grid), sk, 0, r++, 2, 1);
+    int n = skills_count() < 16 ? skills_count() : 16, half = (n + 1) / 2;
+    for (int i = 0; i < n; i++) {
+        const SkillInfo *info = skills_get(i);
+        f->skills[i] = check(info->name, config_skill_enabled(info->id));
+        gtk_widget_set_tooltip_text(f->skills[i], info->example);
+        gtk_grid_attach(GTK_GRID(grid), f->skills[i], i / half, r + i % half, 1, 1);
+    }
+    r += half;
+    f->city = add_row(GTK_GRID(grid), r++, "Tu ciudad (para el clima)", gtk_entry_new());
+    gtk_entry_set_text(GTK_ENTRY(f->city), cfg.city);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(f->city), "Chihuahua");
     SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
     config_free(&cfg);
     g_signal_connect(d, "response", G_CALLBACK(on_settings_response), f);
