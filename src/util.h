@@ -55,6 +55,9 @@ bool append_file(const wchar_t *path, const void *data, size_t len);
 bool file_exists(const wchar_t *path);
 bool dir_exists(const wchar_t *path);
 bool ensure_dir(const wchar_t *path);
+/* Los archivos de una carpeta que terminan en suffix (".md"), por nombre y en
+   orden (heap, *n; NULL si no hay o no existe). Solo archivos normales. */
+char **dir_list(const wchar_t *dir, const char *suffix, int *n);
 bool copy_file(const wchar_t *src, const wchar_t *dst, bool overwrite);
 /* Renombra o mueve, reemplazando el destino si existe. */
 bool move_file(const wchar_t *from, const wchar_t *to);

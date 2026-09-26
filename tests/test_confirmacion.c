@@ -14,6 +14,7 @@
 #include "resource.h"
 #include "resources.h"
 #include "agent.h"
+#include "skills.h"
 #include "config.h"
 #include "groq.h"
 #include "log.h"
@@ -331,6 +332,30 @@ static void test_respuesta_basura(void)
           "una respuesta normal pasa igual");
     free(r);
     conv_destroy(c);
+}
+
+/* Tu skill de IA: sus instrucciones van al modelo solo en el pedido que la activa. */
+static void test_skill_ia(void)
+{
+    printf("-- tu skill de IA --\n");
+    wchar_t *dir = skills_user_dir();
+    ensure_dir(dir);
+    wchar_t *f = path_join(dir, L"Prueba noticias.md");
+    const char *t = "# Prueba noticias\nTipo: IA\nFrases: noticias de prueba\n\nContesta con exactamente cinco titulares.\n";
+    write_file_atomic(f, t, strlen(t));
+    Conversation *c = conv_create(false);
+    script("Aquí van.", NULL, NULL);
+    free(say(c, "dame las noticias de prueba"));
+    check(strstr(g_last_sent, "cinco titulares") && strstr(g_last_sent, "Prueba noticias"),
+          "«dame las noticias de prueba»: las instrucciones de tu skill van al modelo");
+    script("Leonardo da Vinci.", NULL, NULL);
+    free(say(c, "¿quién pintó la Mona Lisa?"));
+    check(!strstr(g_last_sent, "cinco titulares"), "y en el siguiente pedido ya no");
+    conv_destroy(c);
+    DeleteFileW(f);
+    free(f);
+    RemoveDirectoryW(dir);
+    free(dir);
 }
 
 static void test_flujo(void)
@@ -1003,6 +1028,7 @@ int wmain(void)
     }
     test_respuestas();
     test_flujo();
+    test_skill_ia();
     test_menos_preguntas();
     test_despedidas();
     test_respuesta_basura();

@@ -115,6 +115,21 @@ Entiende de qué PC hablas aunque no digas su nombre exacto: "Chloe" es "cloe", 
   - **Plática:** "hola", "buenos días", "¿cómo estás?", "cuéntame un chiste", "¿qué puedes hacer?".
   
   Solo contestan lo que es claramente para ellas: si la frase trae algo más ("¿qué hora es en Japón?", "anota la lista en un Word"), va a la IA. La ventana de Sokari dice si cada respuesta fue **sin IA (0 tokens)** o cuántos tokens gastó. Tu voz se sigue pasando a texto con Groq: eso no gasta tokens del modelo, pero sí su cupo de audio.
+- **Tus propias skills:** en Configuración → Skills, **Nueva skill** crea un archivo de texto de ejemplo en tu carpeta de skills (`Escritorio\Sokari\skills` en Windows, `~/.local/share/sokari/skills` en Linux); también se crean diciéndole "crea una rutina que abra Spotify y ponga el volumen en 30 cuando diga modo estudio". Hay dos tipos:
+  - **Rutina (sin IA, 0 tokens):** al decir una de sus frases ("modo estudio", "activa el modo estudio") hace sus pasos. Pasos que sabe hacer: `abre` (una app, una página o una carpeta), `música` (play, pausa, siguiente, anterior), `volumen` (0 a 100), `youtube` (qué poner), `escribe`, `minimiza`, `di` (lo que contesta) y `espera` (segundos, hasta 10). Nada de comandos libres.
+  - **IA:** al decir sus frases, sus instrucciones van a la IA en ese pedido ("resumen de noticias: dame 5, una frase cada una").
+
+  ```
+  # Modo estudio
+  Tipo: rutina
+  Frases: modo estudio | vamos a estudiar
+
+  - abre: Spotify
+  - volumen: 30
+  - di: Listo, a estudiar.
+  ```
+
+  Tus comandos propios de antes también se hacen sin IA al decir su nombre. Tus rutinas van antes que las skills de Sokari: una rutina "buenos días" le gana al saludo.
 - **Entiende español de México:** "púchale/pícale play", "súbele un buen", "súbele al máximo", "bájale tantito", "cámbiale a la que sigue", "ponme otra rola", "quítale el volumen"; "simón", "sale", "órale", "a huevo", "de una" cuentan como sí, y "nel", "ni madres", "ni de chiste" como no; "¿mande?" repite la pregunta; "ahí nos vidrios" o "ahí la vemos" se despiden. Todo eso se entiende en tu PC, sin gastar cupo.
 - **Habla como mexa solo si le pides:** de fábrica contesta en español neutro. "Háblame como mexa" (o "como mexicano", "como mexica", "como chilango", "en mexicano", "ponte mexa") lo cambia y se queda así; "habla normal" o "ya no hables como mexicano" lo regresa.
 - **Empezar de cero:** "ignora todo lo anterior" u "olvida lo anterior" hace que la conversación de ahora se olvide, sin pasar por el modelo. "Borra la memoria de hoy" (o "de todo") borra de la memoria lo que han hablado; como es borrar, pide un "sí". Tus datos guardados no se tocan.

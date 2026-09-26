@@ -68,6 +68,7 @@ extern const char *const SK_MONTHS[12];
 extern const char *const SK_DAYS[7];
 
 /* Cada skill: qué decir (heap) o NULL si la frase no es para ella. */
+char *sk_user(Heard *h, bool *end);
 char *sk_time_date(Heard *h, bool *end);
 char *sk_timers(Heard *h, bool *end);
 char *sk_alarms(Heard *h, bool *end);

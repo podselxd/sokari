@@ -26,6 +26,8 @@ static const struct {
     SkillInfo info;
     SkillFn fn;
 } SKILLS[] = {
+    /* Primero las tuyas: una rutina "buenos días" le gana al saludo. */
+    {{"mis_skills", "Tus rutinas y skills", "Las que tú creas: «modo estudio», «resumen de noticias»"}, sk_user},
     {{"hora", "Hora y fecha", "«¿Qué hora es?», «¿Qué día es hoy?», «¿Cuánto falta para Navidad?»"}, sk_time_date},
     {{"temporizador", "Temporizadores y cronómetro", "«Pon un temporizador de 10 minutos», «Inicia el cronómetro»"},
      sk_timers},

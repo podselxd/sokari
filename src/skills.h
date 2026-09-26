@@ -25,6 +25,20 @@ const SkillInfo *skills_get(int i);
    (heap) y cuál fue; si no, NULL (se va a la IA). *end: la plática terminó. */
 char *skills_try(const char *text, const SkillInfo **which, bool *end);
 
+/* Tus skills (la carpeta skills de tu memoria, un .md por skill). */
+wchar_t *skills_user_dir(void);
+/* Si lo que dijiste activa una de tus skills de IA: sus instrucciones para el
+   modelo (heap) y su nombre (*name, heap); si no, NULL. */
+char *skills_ai_for(const char *text, char **name);
+/* Crea (o reemplaza) una skill tuya y dice cómo quedó (heap). steps: líneas
+   "- abre: Spotify" (rutina); body: las instrucciones (IA). */
+char *skills_create(const char *name, bool routine, const char *phrases, const char *when, const char *body,
+                    const char *steps);
+/* Tus skills y comandos propios, separados por comas (heap), y cuántos son. */
+char *skills_user_summary(int *count);
+/* Una skill nueva de ejemplo para editar; su ruta (heap) o NULL. */
+wchar_t *skills_new_template(void);
+
 /* Los temporizadores que ya sonaron: qué decir de cada uno (heap). */
 char **skills_due_timers(int *n);
 

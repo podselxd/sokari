@@ -40,6 +40,7 @@ bool tool_needs_confirmation(const char *name, const cJSON *args)
     if (!strcmp(name, "cambiar_permisos")) return arg_bool(args, "acceso_completo");
     /* run_macro también: un comando guardado puede traer type_text con enviar. */
     static const char *const ALWAYS[] = {"mover_archivo",         "borrar_archivo",        "create_macro",
+                                         "crear_skill",
                                          "run_macro",             "registrar_dispositivo", "gestionar_dispositivo",
                                          "subir_archivo"};
     return in_list(name, ALWAYS, sizeof ALWAYS / sizeof *ALWAYS);
@@ -65,6 +66,7 @@ char *tool_describe_action(const char *name, const cJSON *args)
                                  : !strcmp(name, "mover_archivo")          ? "origen"
                                  : !strcmp(name, "borrar_archivo")         ? "ruta"
                                  : !strcmp(name, "create_macro")           ? "name"
+                                 : !strcmp(name, "crear_skill")            ? "nombre"
                                  : !strcmp(name, "run_macro")              ? "name"
                                  : !strcmp(name, "registrar_dispositivo")  ? "nombre"
                                  : !strcmp(name, "gestionar_dispositivo")  ? "nombre"
@@ -84,6 +86,8 @@ char *tool_describe_action(const char *name, const cJSON *args)
         r = str_printf("mandar a la papelera %s", a);
     } else if (!strcmp(name, "create_macro")) {
         r = str_printf("crear el comando «%s»", a);
+    } else if (!strcmp(name, "crear_skill")) {
+        r = str_printf("crear la skill «%s»", a);
     } else if (!strcmp(name, "run_macro")) {
         r = str_printf("ejecutar el comando «%s»", a);
     } else if (!strcmp(name, "registrar_dispositivo")) {

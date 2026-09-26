@@ -31,6 +31,8 @@ struct Conversation {
     bool trust_all;     /* dijo "sí a todo": no se vuelve a preguntar en esta conversación */
     char *pending_tool; /* acción que espera un "sí" de voz, con sus argumentos */
     char *pending_args;
+    char *turn_skill;      /* instrucciones de una skill de IA tuya, solo para este pedido */
+    char *turn_skill_name;
 };
 
 static cJSON *g_tools;
@@ -124,6 +126,8 @@ void conv_destroy(Conversation *c)
     if (!c) return;
     clear_pending(c);
     cJSON_Delete(c->history);
+    free(c->turn_skill);
+    free(c->turn_skill_name);
     free(c);
 }
 
@@ -539,6 +543,7 @@ static const ToolGroup TOOL_GROUPS[] = {
     {"identificarse proteger_perfil", " soy llamo llego perfil contrasena quien habla "},
     {"exportar_a_obsidian", " obsidian notas "},
     {"create_macro", " comando comandos macro rutina cuando diga crea "},
+    {"crear_skill", " skill skills rutina rutinas aprende aprendete crea creame crear "},
     {"info_sistema", " cpu ram memoria bateria disco sistema computadora compu estas andas "},
     {"calcular", " cuanto calcula calculadora mas menos por entre raiz porciento dividido multiplica suma resta "},
     {"borrar_memoria_reciente", " memoria chat conversacion historial olvida olvidalo borra borrar "},
@@ -913,6 +918,16 @@ static cJSON *build_request(Conversation *c)
     int n = cJSON_GetArraySize(c->history);
     cJSON_AddItemToArray(msgs, cJSON_Duplicate(cJSON_GetArrayItem(c->history, 0), 1));
     cJSON_AddItemToArray(msgs, context_message(c));
+    if (c->turn_skill) {
+        /* Tu skill de IA: sus instrucciones, solo en este pedido. */
+        cJSON *m = cJSON_CreateObject();
+        cJSON_AddStringToObject(m, "role", "system");
+        char *t = str_printf("Para este pedido, el usuario activó su skill «%s». Síguela:\n%s", c->turn_skill_name,
+                             c->turn_skill);
+        cJSON_AddStringToObject(m, "content", t);
+        free(t);
+        cJSON_AddItemToArray(msgs, m);
+    }
     for (int i = 1; i < n; i++) cJSON_AddItemToArray(msgs, cJSON_Duplicate(cJSON_GetArrayItem(c->history, i), 1));
     return msgs;
 }
@@ -1076,6 +1091,12 @@ static TurnResult process_turn(Conversation *c, const char *text)
         r.keep_going = !skill_end;
         return r;
     }
+    /* ¿Activaste una skill de IA tuya? Sus instrucciones van en este pedido. */
+    free(c->turn_skill);
+    free(c->turn_skill_name);
+    c->turn_skill_name = NULL;
+    c->turn_skill = other ? NULL : skills_ai_for(text, &c->turn_skill_name);
+    if (c->turn_skill) log_msg("Skill de IA «%s» para este pedido.", c->turn_skill_name);
 
     int turn_start = cJSON_GetArraySize(c->history);
     cJSON *um = cJSON_CreateObject();
