@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sokari_remoto/ajustes.dart';
+import 'package:sokari_remoto/fallas.dart';
 import 'package:sokari_remoto/main.dart';
 import 'package:sokari_remoto/malla.dart';
 import 'package:sokari_remoto/voz.dart';
@@ -23,6 +26,35 @@ class AlmacenFalso implements AlmacenAjustes {
     a = nuevo;
     guardados++;
   }
+}
+
+/// Un almacén cifrado que nunca termina de abrir (como un Keystore trabado).
+class AlmacenLento implements AlmacenAjustes {
+  final nunca = Completer<Ajustes>();
+
+  @override
+  Future<Ajustes> cargar() => nunca.future;
+
+  @override
+  Future<void> guardar(Ajustes a) async {}
+}
+
+/// Uno que truena al leer.
+class AlmacenRoto implements AlmacenAjustes {
+  @override
+  Future<Ajustes> cargar() async => throw Exception('javax.crypto.AEADBadTagException');
+
+  @override
+  Future<void> guardar(Ajustes a) async => throw Exception('Keystore no disponible');
+}
+
+class ArranqueFalso implements Arranque {
+  ArranqueFalso(this.error);
+
+  final String? error;
+
+  @override
+  Future<String?> ultimoError() async => error;
 }
 
 /// Un micrófono de mentira: "oye" [frase] (primero a medias, luego completa).
@@ -72,16 +104,18 @@ void main() {
   late http.Response Function(String comando) pc;
 
   setUp(() {
+    Fallas.ultimo.value = null;
     oido = OidoFalso();
     voz = VozFalsa();
     comandos = [];
     pc = (c) => http.Response.bytes(utf8.encode(c.isEmpty ? 'falta el comando' : 'Abrí Spotify.'), c.isEmpty ? 400 : 200);
   });
 
-  Widget app(AlmacenAjustes almacen) => SokariApp(
+  Widget app(AlmacenAjustes almacen, {Arranque? arranque}) => SokariApp(
         almacen: almacen,
         oido: oido,
         voz: voz,
+        arranque: arranque,
         crearCliente: (a) => ClienteMalla(
           direccion: a.direccion,
           secreto: a.secreto,
@@ -177,6 +211,75 @@ void main() {
     await t.pumpAndSettle();
     await t.dragUntilVisible(find.text('Guardar'), find.byType(ListView).last, const Offset(0, -200));
     expect(find.text('Guardar'), findsOneWidget);
+  });
+
+  testWidgets('si los ajustes tardan en abrir, lo dice y deja configurar de nuevo (no solo el círculo)', (t) async {
+    await t.pumpWidget(app(AlmacenLento()));
+    await t.pump(const Duration(seconds: 1));
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byKey(const Key('lento')), findsNothing);
+    await t.pump(const Duration(seconds: 3));
+    expect(find.byKey(const Key('lento')), findsOneWidget);
+    await t.tap(find.byKey(const Key('configurar_de_nuevo')));
+    await t.pumpAndSettle();
+    expect(find.text('Configuración'), findsOneWidget);
+  });
+
+  testWidgets('si los ajustes no se pueden leer, sigue y muestra el error con Copiar', (t) async {
+    String? copiado;
+    t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (c) async {
+      if (c.method == 'Clipboard.setData') copiado = (c.arguments as Map)['text'] as String;
+      return null;
+    });
+    addTearDown(() => t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    await t.pumpWidget(app(AlmacenRoto()));
+    await t.pumpAndSettle();
+    expect(find.text('Conecta tu PC'), findsOneWidget);
+    expect(find.byKey(const Key('falla')), findsOneWidget);
+    expect(find.textContaining('No pude leer tus ajustes guardados'), findsOneWidget);
+    await t.tap(find.byKey(const Key('copiar_falla')));
+    await t.pumpAndSettle();
+    expect(copiado, contains('AEADBadTagException'));
+    await t.tap(find.byKey(const Key('cerrar_falla')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const Key('falla')), findsNothing);
+  });
+
+  testWidgets('si no puede guardar, lo dice y se queda en Configuración', (t) async {
+    await t.pumpWidget(app(AlmacenRoto()));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('configurar')));
+    await t.pumpAndSettle();
+    await t.enterText(find.byKey(const Key('direccion')), '100.64.0.7');
+    await t.enterText(find.byKey(const Key('secreto')), 'secreto');
+    await t.pump();
+    await t.tap(find.byKey(const Key('guardar')));
+    await t.pumpAndSettle();
+    expect(find.textContaining('No pude guardar tus ajustes'), findsWidgets);
+    expect(find.byKey(const Key('guardar')), findsOneWidget);
+  });
+
+  testWidgets('lo que Android guardó de la vez pasada se ve al abrir', (t) async {
+    await t.pumpWidget(app(AlmacenFalso(configurada.copiar(escucharAlAbrir: false)),
+        arranque: ArranqueFalso('No alcanzó a mostrar su pantalla en 10 s (modo de dibujo: normal).')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const Key('falla')), findsOneWidget);
+    expect(find.textContaining('La vez pasada Sokari no abrió bien'), findsOneWidget);
+    expect(find.text('Toca para hablar'), findsOneWidget);
+  });
+
+  testWidgets('sin nada de la vez pasada no aparece ningún aviso', (t) async {
+    await t.pumpWidget(app(AlmacenFalso(configurada.copiar(escucharAlAbrir: false)), arranque: ArranqueFalso(null)));
+    await t.pumpAndSettle();
+    expect(find.byKey(const Key('falla')), findsNothing);
+  });
+
+  test('un error se guarda con dónde pasó y su pila (corta)', () {
+    Fallas.registrar(Exception('uy'), StackTrace.fromString(List.generate(30, (i) => '#$i f$i').join('\n')), 'Probando');
+    final t = Fallas.ultimo.value!;
+    expect(t, startsWith('Probando: Exception: uy'));
+    expect(t, contains('#11 f11'));
+    expect(t, isNot(contains('#12 f12')));
   });
 
   test('mensajes del reconocimiento de voz en español', () {
