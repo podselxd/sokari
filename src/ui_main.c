@@ -48,7 +48,6 @@ static struct {
 
     int mode, style, res;
     int anim; /* cómo entra y sale (SphereAnim) */
-    int face_level; /* la cara: qué tanto se le nota (FaceLevel) */
     bool face_symbols;
     bool subtitles;
     volatile LONG visible;
@@ -204,7 +203,6 @@ static void load_display_config(void)
     U.mode = c.display_mode;
     U.style = c.sphere_style;
     U.anim = c.appear_anim;
-    U.face_level = c.face_level;
     U.face_symbols = c.face_symbols;
     U.res = c.resolution;
     U.subtitles = c.subtitles;
@@ -810,7 +808,7 @@ static DWORD WINAPI render_main(LPVOID arg)
             in.pulse = pulse;
             in.affect = affect_get();
             in.cue = affect_last_cue(&in.cue_seq);
-            in.level = (FaceLevel)U.face_level;
+            in.level = FACE_LEVEL_HIGH; /* siempre «mucho» */
             in.symbols = U.face_symbols;
             SphereFace pose;
             face_step(face, dt, &in, &pose);

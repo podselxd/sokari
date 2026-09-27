@@ -50,7 +50,7 @@ typedef struct {
     /* Cuenta */
     GtkWidget *key, *name, *profile_pw, *stop;
     /* Pantalla */
-    GtkWidget *style, *anim, *subtitles, *face_level, *face_symbols;
+    GtkWidget *style, *anim, *subtitles, *face_symbols;
     /* Voz y audio */
     GtkWidget *volume, *voice, *mic, *out, *sensitivity, *end_silence, *duck;
     TtsVoice *voices;
@@ -368,13 +368,11 @@ static void on_anim_changed(GtkComboBox *c, gpointer button)
     gtk_widget_set_sensitive(GTK_WIDGET(button), gtk_combo_box_get_active(c) < SPHERE_ANIM_NONE);
 }
 
-/* «Qué tanto se le nota» y los símbolos solo cuentan con una cara. */
+/* Los símbolos solo cuentan con una cara. */
 static void on_style_changed(GtkComboBox *c, gpointer data)
 {
     Form *f = data;
-    bool face = gtk_combo_box_get_active(c) >= SPHERE_STYLE_FACE_EYES;
-    gtk_widget_set_sensitive(f->face_level, face);
-    gtk_widget_set_sensitive(f->face_symbols, face);
+    gtk_widget_set_sensitive(f->face_symbols, gtk_combo_box_get_active(c) >= SPHERE_STYLE_FACE_EYES);
 }
 
 static GtkWidget *page_display(Form *f, const AppConfig *cfg)
@@ -385,9 +383,6 @@ static GtkWidget *page_display(Form *f, const AppConfig *cfg)
                                                            "Cara: ojos y boca (beta)", "Cara: de puntos (beta)"};
     int style = cfg->sphere_style >= 0 && cfg->sphere_style < SPHERE_STYLE_COUNT ? cfg->sphere_style : 0;
     f->style = add_row(g, r++, "Estilo", choice(STYLES, SPHERE_STYLE_COUNT, style));
-    static const char *const LEVELS[] = {"Poco", "Normal", "Mucho"};
-    int level = cfg->face_level >= 0 && cfg->face_level <= 2 ? cfg->face_level : 1;
-    f->face_level = add_row(g, r++, "Qué tanto se le nota", choice(LEVELS, 3, level));
     f->face_symbols = add_wide(g, r++, check("Símbolos en la cara (lágrima, destellos, «?»…)", cfg->face_symbols));
     add_wide(g, r++, help_label("La cara expresa el estado de Sokari, no sentimientos. Con cara, le pide a la IA una "
                                 "etiqueta con la emoción de cada respuesta (unos 70 tokens más)."));
@@ -872,8 +867,6 @@ static bool save(Form *f)
     set_str(&cfg.ai_order, config_clean_ai_order(gtk_entry_get_text(GTK_ENTRY(f->order))));
     int style = gtk_combo_box_get_active(GTK_COMBO_BOX(f->style));
     cfg.sphere_style = style >= 0 && style < SPHERE_STYLE_COUNT ? style : 0;
-    int level = gtk_combo_box_get_active(GTK_COMBO_BOX(f->face_level));
-    cfg.face_level = level >= 0 && level <= 2 ? level : 1;
     cfg.face_symbols = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->face_symbols));
     int anim = gtk_combo_box_get_active(GTK_COMBO_BOX(f->anim));
     cfg.appear_anim = anim >= 0 && anim < SPHERE_ANIM_COUNT ? anim : 0;

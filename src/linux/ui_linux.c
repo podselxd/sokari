@@ -66,7 +66,6 @@ typedef struct {
     SphereFace pose;
     SphereParams draw;
     bool face_on, face_symbols;
-    int face_level;
 } Ui;
 
 static Ui U;
@@ -269,7 +268,7 @@ static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer u)
         in.pulse = U.pulse;
         in.affect = affect_get();
         in.cue = affect_last_cue(&in.cue_seq);
-        in.level = (FaceLevel)U.face_level;
+        in.level = FACE_LEVEL_HIGH; /* siempre «mucho» */
         in.symbols = U.face_symbols;
         face_step(U.face, dt, &in, &U.pose);
         face_sphere_colors(&in.affect, &U.cur, &U.draw);
@@ -374,7 +373,6 @@ static bool subtitles_on(void)
     bool on = cfg.subtitles;
     U.want_style = cfg.sphere_style;
     U.anim = cfg.appear_anim;
-    U.face_level = cfg.face_level;
     U.face_symbols = cfg.face_symbols;
     SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
     config_free(&cfg);
