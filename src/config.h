@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <wchar.h>
 
-#define SOKARI_VERSION "2.6.0"
-#define SOKARI_VERSION_W L"2.6.0"
+#define SOKARI_VERSION "2.7.0"
+#define SOKARI_VERSION_W L"2.7.0"
 #define GITHUB_REPO "podselxd/sokari"
 
 typedef enum {
@@ -37,6 +37,7 @@ typedef struct {
     int wake_sensitivity; /* 0-100 */
     int sphere_style;     /* SphereStyle: 0 halo de puntos, 1 líneas (beta), 2-4 las caras (beta) */
     int appear_anim;      /* al aparecer y desaparecer (SphereAnim): 0 materializarse, 1 deslizarse, 2 zoom, 3 nada */
+    int face_level;       /* la cara: «Qué tanto se le nota» (FaceLevel: 0 poco, 1 normal, 2 mucho) */
     int end_silence;      /* cuánto esperar callado para terminar tu orden: 0 corta, 1 normal, 2 larga */
     int orb_x, orb_y;     /* posición de la ventana flotante; -1 = centrada */
     int win_x, win_y, win_w, win_h; /* modo Ventana; win_w <= 0 = tamaño y lugar por defecto */
@@ -47,6 +48,7 @@ typedef struct {
     bool full_access;       /* acceso completo: no pide permiso para nada, salvo antes de borrar */
     bool mexa;              /* habla como mexicano ("háblame como mexa"); entenderlo, siempre */
     bool duck;              /* baja el volumen de la PC mientras te escucha */
+    bool face_symbols;      /* la cara con símbolos: lágrima, destellos, gota de sudor, «?», enojo, «…» */
 } AppConfig;
 
 typedef struct {

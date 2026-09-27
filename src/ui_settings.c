@@ -69,7 +69,7 @@ enum {
     A_NONE, A_GROQ_LINK, A_RESET_PW, A_SHOW_API, A_SHOW_STOP, A_TAILSCALE, A_COPY_SECRET, A_OBSIDIAN, A_PICK_SOUND,
     A_CLEAR_SOUND, A_OPEN_FOLDER, A_CHECK_UPDATE, A_SAVE, A_CANCEL, A_START, A_GO_SETTINGS, A_MUTE, A_TEST_AUDIO,
     A_QUIT, A_MODE_CHANGED, A_OUTPUT_CHANGED, A_TEST_VOICE, A_FIREWALL, A_DETECT, A_DIAGNOSE, A_FULL_ACCESS,
-    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM,
+    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM, A_STYLE,
     /* Por dispositivo de la lista: + su número. */
     A_DEV_PROBE = 200, A_DEV_REMOVE = 300,
     /* Por IA de respaldo (0 NVIDIA, 1 DeepSeek, 2 OpenRouter, 3 GLM): ver la key y dónde sacarla. */
@@ -111,6 +111,7 @@ static struct {
     int autostart;
     int subtitles;
     int show_only_talking;
+    int face_level, face_symbols; /* la cara: qué tanto se le nota y los símbolos */
     int full_access; /* acceso completo: no pregunta nada salvo antes de borrar */
     int skill_on[16]; /* las skills locales prendidas (en el orden de skills_get) */
     TtsVoice *voices;
@@ -152,7 +153,9 @@ static const wchar_t *const MODE_DESCS[DISPLAY_MODE_COUNT] = {
 };
 #define CARD_H 56
 #define CARD_GAP 6
-static const wchar_t *STYLE_LABELS[] = {L"Halo de puntos", L"Líneas (beta)"};
+static const wchar_t *STYLE_LABELS[] = {L"Halo de puntos", L"Líneas (beta)", L"Cara: solo ojos (beta)",
+                                        L"Cara: ojos y boca (beta)", L"Cara: de puntos (beta)"};
+static const wchar_t *FACE_LEVEL_LABELS[] = {L"Poco", L"Normal", L"Mucho"};
 static const wchar_t *APPEAR_LABELS[] = {L"Materializarse", L"Deslizarse", L"Zoom", L"Ninguna"};
 static const wchar_t *END_LABELS[] = {L"Poco", L"Normal", L"Más"};
 
@@ -518,12 +521,18 @@ static void layout(void)
             y = layout_segment(x, y, w, &S.resolution_index, RES_LABELS, 5);
             /* Estilo y animación en un solo renglón: con 1366×768 todo tiene
                que caber arriba de Guardar. */
-            int sw = w * 2 / 5, ax = x + sw + dp(16), aw = x + w - ax;
+            /* Con una cara, en medio va «Se nota» (poco, normal, mucho). */
+            bool face = S.style >= 2;
+            int sw = w * 2 / 5, lx = x + sw + dp(12), lw = face ? dp(110) : 0;
+            int ax = face ? lx + lw + dp(12) : x + sw + dp(16), aw = x + w - ax;
             layout_label(x, y, sw, L"Estilo");
+            if (face) layout_label(lx, y, lw, L"Se nota");
             y = layout_label(ax, y, aw, L"Al aparecer y desaparecer");
-            layout_segment(x, y, sw, &S.style, STYLE_LABELS, 2);
+            layout_dropdown(x, y, sw, &S.style, STYLE_LABELS, 5, A_STYLE);
+            if (face) layout_dropdown(lx, y, lw, &S.face_level, FACE_LEVEL_LABELS, 3, A_NONE);
             layout_button(x + w - dp(96), y + dp(2), dp(96), L"Probar", A_TEST_ANIM, false);
             y = layout_dropdown(ax, y, aw - dp(108), &S.appear, APPEAR_LABELS, 4, A_NONE);
+            if (face) y = layout_toggle(x, y, w, &S.face_symbols, L"Símbolos en la cara (lágrima, destellos, «?»…)");
             y = layout_toggle(x, y, w, &S.subtitles, L"Mostrar subtítulos de lo que dices y lo que responde");
             y = layout_toggle(x, y, w, &S.show_only_talking, L"Aparecer solo cuando le hablas (y esconderse al terminar)");
             if (S.widgets[S.nwidgets - 1].r.bottom <= cr.bottom - dp(64) - dp(10)) break;
@@ -943,8 +952,10 @@ static void load_values(void)
     S.resolution_index = 0;
     for (int i = 0; i < 5; i++)
         if (RESOLUTIONS[i] == S.cfg.resolution) S.resolution_index = i;
-    S.style = S.cfg.sphere_style;
+    S.style = S.cfg.sphere_style >= 0 && S.cfg.sphere_style < 5 ? S.cfg.sphere_style : 0;
     S.appear = S.cfg.appear_anim;
+    S.face_level = S.cfg.face_level >= 0 && S.cfg.face_level <= 2 ? S.cfg.face_level : 1;
+    S.face_symbols = S.cfg.face_symbols;
     S.end_silence = S.cfg.end_silence;
     S.duck = S.cfg.duck;
     S.subtitles = S.cfg.subtitles;
@@ -1045,6 +1056,8 @@ static void save(void)
     c.resolution = RESOLUTIONS[S.resolution_index];
     c.sphere_style = S.style;
     c.appear_anim = S.appear;
+    c.face_level = S.face_level;
+    c.face_symbols = S.face_symbols != 0;
     c.end_silence = S.end_silence;
     c.duck = S.duck != 0;
     c.subtitles = S.subtitles != 0;
@@ -1418,6 +1431,13 @@ static void do_action(int action)
         set_status(msg);
         break;
     }
+    case A_STYLE:
+        layout(); /* con cara aparecen sus opciones */
+        if (S.style >= 2)
+            set_status(L"La cara (beta) expresa el estado de Sokari, no sentimientos. Le pide a la IA la emoción de "
+                       L"cada respuesta: unos 70 tokens más.");
+        InvalidateRect(S.hwnd, NULL, FALSE);
+        break;
     case A_TEST_ANIM:
         if (S.appear == 3) {
             set_status(L"Con «Ninguna» aparece y desaparece de golpe: no hay nada que probar.");

@@ -111,6 +111,19 @@ typedef struct {
 } AffectTrace;
 typedef void (*AffectTraceFn)(void *ctx, const AffectTrace *tr);
 
+/* Lo último que le pasó, para los gestos de la cara (asentir, negar, guiñar…). */
+typedef enum {
+    AFF_CUE_NONE,
+    AFF_CUE_THANKS,   /* gracias */
+    AFF_CUE_GREETING, /* un saludo */
+    AFF_CUE_JOKE,     /* un chiste */
+    AFF_CUE_DONE,     /* lo resolvió (skill, comando o herramienta que salió) */
+    AFF_CUE_DELICATE, /* pide un «sí» */
+    AFF_CUE_FAIL,     /* algo falló */
+    AFF_CUE_ERROR,    /* sin internet o sin cupo */
+    AFF_CUE_AI,       /* la etiqueta de la IA */
+} AffectCue;
+
 /* ---- el motor, sin nada global (para probarlo con su propio reloj) ---- */
 
 typedef struct AffectEngine AffectEngine;
@@ -156,6 +169,8 @@ void affect_outcome(float expected, bool ok, float importance, const char *cause
 void affect_event(AffectEvent ev);
 void affect_tool(const char *name, bool ok);
 AffectState affect_get(void);
+/* Lo último que pasó; *seq cambia cada vez (para no repetir el gesto). */
+AffectCue affect_last_cue(unsigned *seq);
 void affect_target(float *valence, float *arousal);
 AffectMetrics affect_metrics(void);
 /* Guarda el ánimo (también lo hace sola cada 5 minutos si cambió). */

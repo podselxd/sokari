@@ -7,12 +7,18 @@
 typedef enum {
     SPHERE_STYLE_DOTS = 0,  /* halo de puntos (default) */
     SPHERE_STYLE_LINES = 1, /* meridianos, el diseño de Main.dc.html */
-    /* Las caras (beta). Mientras no tengan dibujo propio se ven como el halo de puntos. */
-    SPHERE_STYLE_FACE_EYES = 2,  /* solo ojos: la de fábrica de las caras */
-    SPHERE_STYLE_FACE_MOUTH = 3, /* ojos y boca */
-    SPHERE_STYLE_FACE_DOTS = 4,  /* de puntos */
+    /* Las caras (beta), sobre el halo de puntos. Sin sphere_set_face se ven
+       como el halo solo. */
+    SPHERE_STYLE_FACE_EYES = 2,  /* solo ojos de luz: la de fábrica de las caras */
+    SPHERE_STYLE_FACE_MOUTH = 3, /* ojos y boca de luz */
+    SPHERE_STYLE_FACE_DOTS = 4,  /* los puntos de la esfera forman la cara */
     SPHERE_STYLE_COUNT
 } SphereStyle;
+
+static inline bool sphere_style_is_face(SphereStyle s)
+{
+    return s >= SPHERE_STYLE_FACE_EYES && s < SPHERE_STYLE_COUNT;
+}
 
 typedef struct {
     float low[3];  /* colorLow  (0-255) */
@@ -50,6 +56,63 @@ void sphere_render(SphereRenderer *r, double t, double angle, double voice_t, co
                    float pulse, SphereStyle style, uint32_t *out, int stride, bool premultiplied);
 
 void sphere_lerp(SphereParams *out, const SphereParams *a, const SphereParams *b, float f);
+
+/* Los símbolos alrededor de la cara (se pueden apagar). */
+typedef enum {
+    SPHERE_SYM_TEAR,     /* lágrima (tristeza) */
+    SPHERE_SYM_SWEAT,    /* gota de sudor (temor) */
+    SPHERE_SYM_SPARK,    /* destello (alegría) */
+    SPHERE_SYM_QUESTION, /* «?» (duda) */
+    SPHERE_SYM_ANGER,    /* la marca de enojo (furia) */
+    SPHERE_SYM_DOTS,     /* «…» (pensando): size = cuántos puntos, de 0 a 3 */
+} SphereSymbolKind;
+
+typedef struct {
+    SphereSymbolKind kind;
+    float x, y;  /* en radios de la esfera, desde el centro de la cara */
+    float size;  /* 1 = normal; 0 no se ve */
+    float alpha; /* 0..1 */
+    float rot;   /* radianes (destellos) */
+} SphereSymbol;
+
+#define SPHERE_MAX_SYMBOLS 6
+
+/* La pose de la cara en un cuadro; la calcula face.c. Las medidas van en
+   radios de la esfera y 0 es «como siempre». */
+typedef struct {
+    /* los ojos */
+    float eye_w, eye_h;        /* escala (1 = normal) */
+    float lid_top, lid_bot;    /* cuánto tapan los párpados (0..1) */
+    float lid_tilt;            /* + furia (adentro abajo), - tristeza (afuera abajo) */
+    float happy;               /* ojos en arco «^ ^» (0..1) */
+    float asym;                /* uno entrecerrado y el otro abierto (desagrado, duda) */
+    float round;               /* 2 = óvalo, 4 = cuadrado redondeado (solo ojos) */
+    float eye_dy;              /* más arriba (-) o más abajo (+) */
+    float shade;               /* sombra en diagonal arriba afuera (preocupación), 0..1 */
+    float blink[2];            /* 0 abierto, 1 cerrado (izquierdo, derecho) */
+    float gaze_x, gaze_y;      /* hacia dónde ve */
+    /* la boca */
+    float smile;               /* -1 triste, 1 sonrisa */
+    float mouth_open, mouth_w, wave, mouth_o, mouth_asym;
+    float talk;                /* 0..1: la voz, sílaba por sílaba */
+    /* toda la cara (y la esfera con ella) */
+    float fx, fy;              /* la cara sobre la esfera */
+    float tilt;                /* radianes */
+    float scale;               /* la esfera entera (1 = normal) */
+    float sx, sy;              /* aplastar y estirar */
+    float sphere_dx, sphere_dy; /* la esfera la sigue */
+    float glow;                /* 1 = normal */
+    float alpha;               /* 1 = normal; menos al entrar o salir */
+    float color[3];            /* el color de la emoción (0-255) */
+    int nsym;
+    SphereSymbol sym[SPHERE_MAX_SYMBOLS];
+} SphereFace;
+
+/* La cara neutral, quieta y de frente. */
+void sphere_face_neutral(SphereFace *f);
+/* La cara de los cuadros que siguen (se copia); NULL la quita. Solo se ve
+   con los estilos de cara. */
+void sphere_set_face(SphereRenderer *r, const SphereFace *face);
 
 /* Cómo entra y sale de la pantalla (Configuración → Pantalla). */
 typedef enum {

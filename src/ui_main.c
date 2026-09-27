@@ -14,8 +14,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "affect.h"
 #include "app.h"
 #include "config.h"
+#include "face.h"
 #include "log.h"
 #include "resource.h"
 #include "resources.h"
@@ -46,6 +48,8 @@ static struct {
 
     int mode, style, res;
     int anim; /* cómo entra y sale (SphereAnim) */
+    int face_level; /* la cara: qué tanto se le nota (FaceLevel) */
+    bool face_symbols;
     bool subtitles;
     volatile LONG visible;
     volatile LONG yielded;
@@ -200,6 +204,8 @@ static void load_display_config(void)
     U.mode = c.display_mode;
     U.style = c.sphere_style;
     U.anim = c.appear_anim;
+    U.face_level = c.face_level;
+    U.face_symbols = c.face_symbols;
     U.res = c.resolution;
     U.subtitles = c.subtitles;
     primary_monitor(&U.mon);
@@ -679,6 +685,7 @@ static void target_params(JvState st, SphereParams *out)
 static DWORD WINAPI render_main(LPVOID arg)
 {
     SphereRenderer *sr = NULL;
+    Face *face = NULL; /* la cara (beta): gestos y parpadeos, de cuadro en cuadro */
     Surface sphere = {0}, back = {0};
     HFONT big = NULL, small = NULL, status_font = NULL;
     SphereParams cur = SPHERE_IDLE;
@@ -792,7 +799,27 @@ static DWORD WINAPI render_main(LPVOID arg)
         bool slide = ap.anim == SPHERE_ANIM_SLIDE && ap.presence < 1.0f;
         bool orb = U.mode == DISPLAY_WINDOWED_BORDERLESS;
         sphere_set_presence(sr, ap.anim, ap.presence);
-        sphere_render(sr, t, angle, voice_t, &cur, voice, pulse, (SphereStyle)U.style, sphere.px, sphere.w, orb);
+        /* La cara (beta): su pose y sus colores salen del estado afectivo. */
+        SphereParams draw = cur;
+        if (sphere_style_is_face((SphereStyle)U.style)) {
+            if (!face) face = face_create((unsigned)GetTickCount());
+            FaceInput in;
+            memset(&in, 0, sizeof in);
+            in.activity = (FaceActivity)st; /* mismo orden que JvState */
+            in.voice = voice;
+            in.pulse = pulse;
+            in.affect = affect_get();
+            in.cue = affect_last_cue(&in.cue_seq);
+            in.level = (FaceLevel)U.face_level;
+            in.symbols = U.face_symbols;
+            SphereFace pose;
+            face_step(face, dt, &in, &pose);
+            face_sphere_colors(&in.affect, &cur, &draw);
+            sphere_set_face(sr, &pose);
+        } else {
+            sphere_set_face(sr, NULL);
+        }
+        sphere_render(sr, t, angle, voice_t, &draw, voice, pulse, (SphereStyle)U.style, sphere.px, sphere.w, orb);
 
         if (hud && orb) {
             SIZE sz = {sphere.w, sphere.h};
@@ -854,6 +881,7 @@ static DWORD WINAPI render_main(LPVOID arg)
         if (st == JV_IDLE && !sphere_appear_moving(&ap) && (++frame & 1)) DwmFlush();
     }
     sphere_destroy(sr);
+    face_destroy(face);
     surface_free(&sphere);
     surface_free(&back);
     if (big) DeleteObject(big), DeleteObject(small), DeleteObject(status_font);

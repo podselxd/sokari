@@ -4,5 +4,5 @@
   "description": "Deja que Sokari, tu asistente de voz, vea tus ventanas, oprima teclas y use el portapapeles cuando tú se lo pides. Solo atiende al programa Sokari instalado en el sistema.",
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/podselxd/sokari",
-  "version-name": "2.6.0"
+  "version-name": "2.7.0"
 }
