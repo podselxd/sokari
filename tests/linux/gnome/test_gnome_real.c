@@ -308,7 +308,8 @@ static void test_ventana_de_sokari(void)
     printf("-- la ventana de Sokari --\n");
     char *problem = gtk_init_check(NULL, NULL) ? ui_window_problems() : xstrdup("GTK no abrió la pantalla");
     if (problem) printf("      (%s)\n", problem);
-    check(!problem, "su barra de arriba se ve: Hablar, el menú y la X (y con ella se puede mover)");
+    check(!problem, "su barra de arriba se ve (Hablar, el menú y la X) y los dos menús son el mismo, con la "
+                    "versión y «Buscar actualizaciones»");
     free(problem);
     if (!getenv("SOKARI_BIN")) {
         printf("      (sin SOKARI_BIN: se omite)\n");

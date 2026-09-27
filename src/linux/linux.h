@@ -34,6 +34,10 @@ void ui_post_level(float level);
 void ui_post_subtitle(bool from_user, const char *text);
 void ui_post_status(const char *text);
 void ui_post_notify(const char *title, const char *text);
+/* Un aviso con un botón que corre una acción de la app ("app.actualizar");
+   uno nuevo con el mismo id reemplaza al anterior. */
+void ui_post_notify_button(const char *id, const char *title, const char *text, const char *button,
+                           const char *action);
 void ui_post_quit(void);
 /* Para las pruebas (necesita pantalla): qué falla en la barra de la ventana, o NULL. */
 char *ui_window_problems(void);
@@ -50,6 +54,12 @@ bool linux_hotkey_ensure(void);
 const char *linux_package_kind(void);
 bool linux_version_newer(const char *remote, const char *local);
 bool linux_package_verify(const char *path, double size, const char *sha256, const char *kind, char **error);
+/* Cómo se llama el botón (en el menú y en Configuración) y el aviso de versión
+   nueva, que lo nombra (heap). */
+#define LINUX_UPDATE_LABEL "Buscar actualizaciones"
+char *linux_update_notice(const char *tag);
+/* ¿La última revisión instaló una versión nueva? (para ofrecer reiniciar) */
+bool linux_update_installed(void);
 
 /* MD5 en hexadecimal (heap): el que publica el catálogo de voces de Piper. */
 char *tts_md5_hex(const void *data, size_t n);
