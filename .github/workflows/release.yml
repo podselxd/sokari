@@ -1,9 +1,10 @@
 # Crea el release de una versión: compila y prueba en Windows, Linux y la app
 # de Android, revisa que la versión coincida con el código y crea el release
-# con Sokari.exe, Sokari.apk, Sokari.deb y Sokari.rpm adjuntos. El
-# actualizador solo ve releases publicados: en Windows baja Sokari.exe; en
-# Linux, el paquete de su sistema. Sin los secretos de la llave de la app, el
-# release sale sin Sokari.apk y lo dice en sus notas (nunca con un APK mal firmado).
+# con Sokari.exe, Sokari.apk y Sokari.deb adjuntos (Fedora y su .rpm están en
+# pausa). El actualizador solo ve releases publicados: en Windows baja
+# Sokari.exe; en Linux, el paquete de su sistema. Sin los secretos de la llave
+# de la app, el release sale sin Sokari.apk y lo dice en sus notas (nunca con
+# un APK mal firmado).
 #
 # Dos formas de lanzarlo:
 # - Subir un tag vX.Y.Z: queda como BORRADOR para que lo publiques a mano.
@@ -110,11 +111,6 @@ jobs:
           name: Sokari-deb
           path: dist
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: Sokari-rpm
-          path: dist
-
       - name: Crear el release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -123,8 +119,8 @@ jobs:
           NOTAS: ${{ inputs.notas }}
           CON_APP: ${{ needs.version.outputs.con_app }}
         run: |
-          archivos=(dist/Sokari.exe dist/Sokari.deb dist/Sokari.rpm)
-          LINUX='> **Linux (beta):** `Sokari.deb` (Ubuntu 24.04 o más nuevo) y `Sokari.rpm` (Fedora 44), con GNOME. Probado en la CI (GNOME 46 y 50 sin pantalla), todavía no en una PC real. Instálalo, cierra sesión y vuelve a entrar una vez (así GNOME carga la extensión de Sokari) y ábrelo desde tus apps.'
+          archivos=(dist/Sokari.exe dist/Sokari.deb)
+          LINUX='> **Linux (beta):** `Sokari.deb` (Ubuntu 24.04 o más nuevo), con GNOME. Probado en la CI (GNOME 46 sin pantalla), todavía no en una PC real. Instálalo, cierra sesión y vuelve a entrar una vez (así GNOME carga la extensión de Sokari) y ábrelo desde tus apps. Fedora está en pausa: vuelve más adelante.'
           NOTAS="${NOTAS:+$NOTAS$'\n\n'}$LINUX"
           if [ "$CON_APP" = true ]; then
             archivos+=(dist/Sokari.apk)

@@ -16,14 +16,13 @@ Se actualiza solo. Revisa GitHub al arrancar y cada 6 horas, y solo instala la v
 
 ### En Linux (beta)
 
-Ubuntu 24.04 o más nuevo, o Fedora 44, con GNOME. **Es beta:** está probado en la CI (GNOME 46 y 50 sin pantalla), todavía no en una PC real. Lo que falle ahí se corrige en la siguiente versión.
+Ubuntu 24.04 o más nuevo, con GNOME (Fedora está en pausa: vuelve más adelante). **Es beta:** está probado en la CI (GNOME 46 sin pantalla), todavía no en una PC real. Lo que falle ahí se corrige en la siguiente versión.
 
-1. Baja `Sokari.deb` (Ubuntu) o `Sokari.rpm` (Fedora) de la [última versión](https://github.com/podselxd/sokari/releases/latest).
+1. Baja `Sokari.deb` de la [última versión](https://github.com/podselxd/sokari/releases/latest).
 2. Instálalo desde la carpeta donde quedó (pide tu contraseña):
 
    ```bash
-   sudo apt install ./Sokari.deb    # Ubuntu
-   sudo dnf install ./Sokari.rpm    # Fedora
+   sudo apt install ./Sokari.deb
    ```
 
 3. Cierra sesión y vuelve a entrar **una vez**. Así GNOME carga la extensión de Sokari, la que le deja ver tus ventanas y oprimir teclas. `sokari --revisar-gnome` te dice si ya funciona.
@@ -239,7 +238,7 @@ En cada push, GitHub Actions compila en un Windows real (una advertencia del com
 
 ### En Linux
 
-La versión de Linux (Ubuntu 24.04 o más nuevo, y Fedora 44) tiene su ventana, la misma esfera y el mismo agente, herramientas y confirmaciones que en Windows. Para usarlo basta el paquete ([En Linux (beta)](#en-linux-beta)); esto es para compilarlo:
+La versión de Linux (Ubuntu 24.04 o más nuevo; Fedora, en pausa) tiene su ventana, la misma esfera y el mismo agente, herramientas y confirmaciones que en Windows. Para usarlo basta el paquete ([En Linux (beta)](#en-linux-beta)); esto es para compilarlo:
 
 ```bash
 # Ubuntu (Fedora: sudo dnf install gcc make pkgconf-pkg-config libcurl-devel pulseaudio-libs-devel glib2-devel
@@ -262,8 +261,8 @@ make -f Makefile.linux tests && sh tests/correr_linux.sh
 - **La malla (tus otras PCs):** igual que en Windows: escucha solo en la IP de Tailscale de esta PC (`tailscale0`), pide el mismo secreto o reconoce tu misma cuenta de Tailscale, y «Detectar» también encuentra PCs con Linux. En la ventana, en «Tus PCs» (o desde la terminal: `sokari --revisar-malla`, `sokari --detectar-pcs` y `sokari --permitir-firewall`). Este último abre el puerto 8765 solo para tu red de Tailscale, en ufw (Ubuntu) o firewalld (Fedora), y pide tu contraseña. Tailscale normalmente deja pasar lo suyo aunque el firewall esté prendido, y Fedora Workstation ya trae ese puerto abierto.
 - La configuración va en `~/.config/sokari/config.env` (tu key: `GROQ_API_KEY=...`) y la memoria en `~/.local/share/sokari`; las dos solo las puede leer tu usuario. El estado afectivo (`afecto.json`, `afecto.jsonl`) también va en `~/.config/sokari/`.
 - El código de Linux está en `src/linux/`; `src/linux/include/windows.h` da los hilos, candados y eventos con la misma forma que en Windows, así el agente, la memoria, el detector de "Hey Sokari" y demás son el mismo código en los dos. Los programas externos (Piper, espeak-ng, paplay) se corren sin shell y con el texto por su entrada, nunca como argumento.
-- La CI también compila y prueba en Ubuntu 24.04 (con un servidor de sonido de prueba) y en Fedora 44, y prueba la extensión en un GNOME Shell de verdad sin pantalla (GNOME 46 de Ubuntu y GNOME 50 de Fedora) con dos ventanas de prueba: `make -f Makefile.linux prueba-gnome && sh tests/linux/gnome/probar_extension.sh`.
-- **Los paquetes:** `sh linux/empaquetar.sh deb` (en Ubuntu 24.04) arma `Sokari.deb` y `sh linux/empaquetar.sh rpm` (en Fedora 44, con `rpm-build`) arma `Sokari.rpm`. Instalan `/usr/bin/sokari` (de root, como lo pide la extensión), la extensión para todos los usuarios, el ícono y la entrada del menú de apps. La CI los arma, los instala y corre la prueba de GNOME contra el Sokari instalado; `sokari --revisar-gnome` es esa misma revisión.
+- La CI también compila y prueba en Ubuntu 24.04 (con un servidor de sonido de prueba), y prueba la extensión en un GNOME Shell de verdad sin pantalla (GNOME 46) con dos ventanas de prueba. Fedora 44 y su GNOME 50 están en pausa hasta su port: `make -f Makefile.linux prueba-gnome && sh tests/linux/gnome/probar_extension.sh`.
+- **Los paquetes:** `sh linux/empaquetar.sh deb` (en Ubuntu 24.04) arma `Sokari.deb`. `sh linux/empaquetar.sh rpm` (en Fedora 44, con `rpm-build`) arma `Sokari.rpm`, pero está en pausa: ni la CI ni los releases lo arman. Instalan `/usr/bin/sokari` (de root, como lo pide la extensión), la extensión para todos los usuarios, el ícono y la entrada del menú de apps. La CI los arma, los instala y corre la prueba de GNOME contra el Sokari instalado; `sokari --revisar-gnome` es esa misma revisión.
 
 ### Publicar una versión
 
@@ -274,7 +273,7 @@ make -f Makefile.linux tests && sh tests/correr_linux.sh
 3. Actions:
    - compila y prueba el exe y la app;
    - revisa que la versión coincida con el código;
-   - crea el release con `Sokari.exe`, `Sokari.apk` (la app del celular, con la misma versión), `Sokari.deb` y `Sokari.rpm` (Linux, marcado como beta en las notas).
+   - crea el release con `Sokari.exe`, `Sokari.apk` (la app del celular, con la misma versión) y `Sokari.deb` (Linux, marcado como beta en las notas).
    
    El APK necesita los secretos de su llave de firma (ver [`movil/README.md`](movil/README.md)). Sin ellos, el release sale sin `Sokari.apk` y lo avisa en sus notas.
 4. Si quedó como borrador, revísalo y publícalo. Hasta que lo publiques, nadie se actualiza.

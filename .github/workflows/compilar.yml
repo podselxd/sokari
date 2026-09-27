@@ -1,7 +1,7 @@
 # Compila Sokari.exe y corre las pruebas en un Windows real en cada push. El
 # exe y las capturas de la interfaz quedan como artefactos de la corrida, así
 # se puede probar una rama sin compilarla. También compila y prueba la versión
-# de Linux en Ubuntu 24.04 y en Fedora 44.
+# de Linux en Ubuntu 24.04 (Fedora está en pausa: vuelve con su port).
 name: Compilar y probar
 
 on:
@@ -129,45 +129,9 @@ jobs:
           path: Sokari.deb
           if-no-files-found: error
 
-  linux-fedora:
-    runs-on: ubuntu-24.04
-    container: fedora:44
-    timeout-minutes: 20
-    steps:
-      - name: Dependencias
-        run: dnf install -y gcc make pkgconf-pkg-config libcurl-devel pulseaudio-libs-devel glib2-devel gtk3-devel libayatana-appindicator-gtk3-devel espeak-ng dbus-daemon rpm-build git-core
-
-      - uses: actions/checkout@v4
-
-      - name: Compilar Sokari y las pruebas (una advertencia cuenta como error)
-        run: |
-          set -o pipefail
-          make -f Makefile.linux -j4 all tests 2>&1 | tee build.log
-          if grep -q "warning:" build.log; then echo "::error::El compilador dio advertencias"; exit 1; fi
-
-      - name: Correr las pruebas
-        run: sh tests/correr_linux.sh
-
-      - name: Paquete .rpm (Fedora 44)
-        run: sh linux/empaquetar.sh rpm
-
-      - name: Instalarlo y revisarlo
-        run: |
-          dnf install -y ./Sokari.rpm
-          sokari --version
-          test "$(stat -c %U /usr/bin/sokari)" = root
-          test -f /usr/share/gnome-shell/extensions/sokari@podselxd.github.io/extension.js
-          test -f /usr/share/applications/io.github.podselxd.Sokari.desktop
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Sokari-rpm
-          path: Sokari.rpm
-          if-no-files-found: error
-
   # La extensión de GNOME de verdad: GNOME Shell sin pantalla, con dos
   # ventanas de prueba, y las herramientas de Sokari contra él. GNOME 46 es el
-  # de Ubuntu 24.04; GNOME 50, el de Fedora 44.
+  # de Ubuntu 24.04 (GNOME 50 se probaba en Fedora 44: en pausa con Fedora).
   gnome-46-ubuntu:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -190,25 +154,4 @@ jobs:
       # Con el Sokari instalado: la extensión le tiene que hacer caso sin
       # ninguna excepción de prueba (es de root y nadie más lo puede cambiar).
       - name: Probar la extensión en GNOME 46
-        run: SOKARI_BIN=/usr/bin/sokari sh tests/linux/gnome/probar_extension.sh
-
-  gnome-50-fedora:
-    runs-on: ubuntu-24.04
-    container: fedora:44
-    timeout-minutes: 25
-    steps:
-      - name: Dependencias (y GNOME Shell)
-        run: |
-          dnf install -y gcc make pkgconf-pkg-config libcurl-devel pulseaudio-libs-devel glib2-devel gtk3-devel \
-            libayatana-appindicator-gtk3-devel gnome-shell gjs dbus-daemon dbus-tools mesa-dri-drivers rpm-build git-core
-
-      - uses: actions/checkout@v4
-
-      - name: Compilar Sokari, su paquete y la prueba
-        run: |
-          make -f Makefile.linux -j4 all prueba-gnome
-          sh linux/empaquetar.sh rpm
-          dnf install -y ./Sokari.rpm
-
-      - name: Probar la extensión en GNOME 50
         run: SOKARI_BIN=/usr/bin/sokari sh tests/linux/gnome/probar_extension.sh
