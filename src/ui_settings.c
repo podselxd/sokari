@@ -72,7 +72,7 @@ enum {
     A_NONE, A_GROQ_LINK, A_RESET_PW, A_SHOW_API, A_SHOW_STOP, A_TAILSCALE, A_COPY_SECRET, A_OBSIDIAN, A_PICK_SOUND,
     A_CLEAR_SOUND, A_OPEN_FOLDER, A_CHECK_UPDATE, A_SAVE, A_CANCEL, A_START, A_GO_SETTINGS, A_MUTE, A_TEST_AUDIO,
     A_QUIT, A_MODE_CHANGED, A_OUTPUT_CHANGED, A_TEST_VOICE, A_FIREWALL, A_DETECT, A_DIAGNOSE, A_FULL_ACCESS,
-    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM, A_STYLE, A_UNINSTALL,
+    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM, A_STYLE, A_UNINSTALL, A_RELAYOUT,
     /* Por dispositivo de la lista: + su número. */
     A_DEV_PROBE = 200, A_DEV_REMOVE = 300,
     /* Por IA de respaldo (0 NVIDIA, 1 DeepSeek, 2 OpenRouter, 3 GLM): ver la key y dónde sacarla. */
@@ -565,16 +565,21 @@ static void layout(void)
         for (int compact = 0; compact < 2; compact++) {
             S.nwidgets = first;
             y = layout_label(x, y0, w, L"Modo de pantalla");
-            int item = dp(compact ? 36 : CARD_H);
-            int ch = item * DISPLAY_MODE_COUNT + dp(CARD_GAP) * (DISPLAY_MODE_COUNT - 1);
-            Widget *c = add(W_CARDS, (RECT){x, y, x + w, y + ch});
-            c->value = &S.display_mode;
-            c->labels = DISPLAY_MODE_LABELS;
-            c->descs = compact ? NULL : MODE_DESCS;
-            c->options = DISPLAY_MODE_COUNT;
-            c->item_h = item;
-            y += ch + dp(compact ? 6 : 14);
-            if (compact) y = layout_help(x, y, w, MODE_DESCS[S.display_mode]) + dp(2);
+            if (compact) {
+                /* Sin espacio para las tarjetas: una lista, y abajo lo que hace el modo elegido. */
+                y = layout_dropdown(x, y, w, &S.display_mode, DISPLAY_MODE_LABELS, DISPLAY_MODE_COUNT, A_RELAYOUT);
+                y = layout_help(x, y - dp(10), w, MODE_DESCS[S.display_mode]) + dp(2);
+            } else {
+                int item = dp(CARD_H);
+                int ch = item * DISPLAY_MODE_COUNT + dp(CARD_GAP) * (DISPLAY_MODE_COUNT - 1);
+                Widget *c = add(W_CARDS, (RECT){x, y, x + w, y + ch});
+                c->value = &S.display_mode;
+                c->labels = DISPLAY_MODE_LABELS;
+                c->descs = MODE_DESCS;
+                c->options = DISPLAY_MODE_COUNT;
+                c->item_h = item;
+                y += ch + dp(14);
+            }
             y = layout_label(x, y, w, L"Resolución de la esfera");
             y = layout_segment(x, y, w, &S.resolution_index, RES_LABELS, 5);
             /* Estilo: las 5 miniaturas en movimiento; clic en una y la
@@ -1487,6 +1492,9 @@ static void do_action(int action)
     }
     case A_CHECK_UPDATE:
         run_async(A_CHECK_UPDATE, L"Buscando actualizaciones…");
+        break;
+    case A_RELAYOUT:
+        layout(); /* lo de abajo depende de lo que se eligió */
         break;
     case A_UNINSTALL: {
         /* Lo hace otro Sokari («--desinstalar»): pregunta y cierra a este. */
