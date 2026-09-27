@@ -7,6 +7,11 @@
 typedef enum {
     SPHERE_STYLE_DOTS = 0,  /* halo de puntos (default) */
     SPHERE_STYLE_LINES = 1, /* meridianos, el diseño de Main.dc.html */
+    /* Las caras (beta). Mientras no tengan dibujo propio se ven como el halo de puntos. */
+    SPHERE_STYLE_FACE_EYES = 2,  /* solo ojos: la de fábrica de las caras */
+    SPHERE_STYLE_FACE_MOUTH = 3, /* ojos y boca */
+    SPHERE_STYLE_FACE_DOTS = 4,  /* de puntos */
+    SPHERE_STYLE_COUNT
 } SphereStyle;
 
 typedef struct {

@@ -665,7 +665,7 @@ void sphere_render(SphereRenderer *r, double t, double angle, double voice_t, co
     float s = (float)size / 960.0f * r->fit;
     if (voice < 0) voice = 0;
     if (voice > 1) voice = 1;
-    bool dots = style == SPHERE_STYLE_DOTS;
+    bool dots = style != SPHERE_STYLE_LINES;
     /* Al entrar o salir de la pantalla. Con la esfera completa no se toca
        nada: sale idéntica a la de siempre. */
     float pres = r->anim == SPHERE_ANIM_NONE ? 1.0f : clamp01(r->presence);
