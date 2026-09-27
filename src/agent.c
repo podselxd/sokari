@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "affect.h"
 #include "agent.h"
 #include "app.h"
 #include "config.h"
@@ -918,6 +919,13 @@ static cJSON *build_request(Conversation *c)
     int n = cJSON_GetArraySize(c->history);
     cJSON_AddItemToArray(msgs, cJSON_Duplicate(cJSON_GetArrayItem(c->history, 0), 1));
     cJSON_AddItemToArray(msgs, context_message(c));
+    if (config_face()) {
+        /* Con la cara puesta: que diga con qué emoción contesta (se quita antes de hablar). */
+        cJSON *m = cJSON_CreateObject();
+        cJSON_AddStringToObject(m, "role", "system");
+        cJSON_AddStringToObject(m, "content", affect_prompt());
+        cJSON_AddItemToArray(msgs, m);
+    }
     if (c->turn_skill) {
         /* Tu skill de IA: sus instrucciones, solo en este pedido. */
         cJSON *m = cJSON_CreateObject();
@@ -1063,6 +1071,7 @@ static TurnResult process_turn(Conversation *c, const char *text)
         char *done = intents_run(&il, &handled);
         if (handled) {
             log_msg("Comando directo, sin IA: «%s» -> %s", text, done);
+            affect_event(il.n == 1 && il.items[0].kind == IN_THANKS ? AFF_EV_THANKS : AFF_EV_TASK_DONE);
             add_message(c->history, "user", text);
             memory_persist("user", text);
             add_message(c->history, "assistant", done);
@@ -1082,6 +1091,8 @@ static TurnResult process_turn(Conversation *c, const char *text)
     char *said = other ? NULL : skills_try(text, &skill, &skill_end);
     if (said) {
         log_msg("Skill local «%s», sin IA: «%s» -> %s", skill->name, text, said);
+        bool chat = skill->id && !strcmp(skill->id, "platica");
+        affect_event(!chat ? AFF_EV_TASK_DONE : str_contains_ci(text, "chiste") ? AFF_EV_JOKE : AFF_EV_GREETING);
         add_message(c->history, "user", text);
         memory_persist("user", text);
         add_message(c->history, "assistant", said);
@@ -1111,6 +1122,8 @@ static TurnResult process_turn(Conversation *c, const char *text)
     bool acted = false, nudged = false, nudge_now = false; /* ¿usó alguna herramienta? ¿ya se le reclamó? */
     bool all_tools = false, filtered = false;              /* ¿se mandaron todas las herramientas? */
     bool forget_after = false;                             /* se borró la memoria: olvidar también esto */
+    float tag[AFF_COUNT];                                  /* la etiqueta de la cara, si la trajo */
+    int ntag = 0;
     for (int round = 0; round < MAX_TOOL_ROUNDS && !reply && !failed; round++) {
         app_status(round ? "Trabajando…" : "Pensando…");
         cJSON *msgs = build_request(c);
@@ -1144,7 +1157,11 @@ static TurnResult process_turn(Conversation *c, const char *text)
         cJSON *calls = cJSON_GetObjectItem(msg, "tool_calls");
         if (!cJSON_IsArray(calls) || !cJSON_GetArraySize(calls)) {
             cJSON *content = cJSON_GetObjectItem(msg, "content");
-            reply = str_trim(cJSON_IsString(content) ? content->valuestring : "");
+            char *raw = str_trim(cJSON_IsString(content) ? content->valuestring : "");
+            /* La etiqueta de la cara («[afecto: alegría 0.6]») nunca se dice ni se
+               muestra, y se quita antes de revisar la respuesta. */
+            reply = affect_take_tags(raw, tag, &ntag);
+            free(raw);
             cJSON_Delete(msg);
             /* "No puedo" cuando faltaba alguna herramienta: otra vez, con todas. */
             if (filtered && !all_tools && round + 1 < MAX_TOOL_ROUNDS && says_cannot(reply) &&
@@ -1168,6 +1185,8 @@ static TurnResult process_turn(Conversation *c, const char *text)
                 log_msg("El modelo insistió en «%s» sin usar ninguna herramienta; no lo digo.", reply);
                 free(reply);
                 reply = xstrdup("Perdón, no lo hice: no encontré cómo. ¿Me lo pides de otra forma?");
+                ntag = 0;
+                affect_outcome(0.8f, false, 0.3f, "no encontró cómo");
             }
             /* Con acceso completo, si aun así pregunta "¿lo hago?", se le
                contesta que sí (una vez por turno) en vez de hacerte contestar. */
@@ -1180,6 +1199,7 @@ static TurnResult process_turn(Conversation *c, const char *text)
                 reply = NULL;
                 continue;
             }
+            if (ntag) affect_emotions(tag, "la IA");
             break;
         }
         cJSON_AddItemToArray(c->history, msg);
@@ -1213,6 +1233,7 @@ static TurnResult process_turn(Conversation *c, const char *text)
                 result = xstrdup("Listo: la conversación termina con esta respuesta.");
             } else if (must_confirm(c, name, parsed)) {
                 blocked = true;
+                affect_event(AFF_EV_DELICATE);
                 char *desc = tool_describe_action(name, parsed);
                 log_msg("[confirmación] %s(%s) espera un sí de voz", name, args);
                 if (c->remote) {
@@ -1232,6 +1253,7 @@ static TurnResult process_turn(Conversation *c, const char *text)
                 free(desc);
             } else {
                 result = run_tool(name, args);
+                affect_tool(name, tool_succeeded(result));
                 if (!strcmp(name, "borrar_memoria_reciente")) forget_after = true;
             }
             cJSON_Delete(parsed);
@@ -1249,7 +1271,16 @@ static TurnResult process_turn(Conversation *c, const char *text)
         }
         /* Despedirse no necesita otra vuelta al modelo: se usa lo que dijo junto
            con la herramienta, o un "hasta luego". */
-        if (ending && !reply) reply = str_trim(said && *said ? said : "Hasta luego.");
+        if (ending && !reply) {
+            char *raw = str_trim(said && *said ? said : "Hasta luego.");
+            reply = affect_take_tags(raw, tag, &ntag);
+            free(raw);
+            if (ntag) affect_emotions(tag, "la IA");
+            if (!*reply) {
+                free(reply);
+                reply = xstrdup("Hasta luego.");
+            }
+        }
         /* Todo lo de esta vuelta fueron acciones que salieron bien: se dice lo
            que hicieron y ya. Media llamada menos de cupo por orden, un segundo
            menos, y el modelo no puede adornarlo con algo falso (como aquel
@@ -1264,6 +1295,7 @@ static TurnResult process_turn(Conversation *c, const char *text)
 
     free(other);
     if (failed) {
+        affect_event(err.status == GROQ_RATE_LIMITED ? AFF_EV_QUOTA : AFF_EV_NETWORK_ERROR);
         while (cJSON_GetArraySize(c->history) > turn_start) cJSON_DeleteItemFromArray(c->history, turn_start);
         r.reply = error_reply(&err);
         r.keep_going = true;

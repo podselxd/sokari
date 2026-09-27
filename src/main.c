@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "affect.h"
 #include "app.h"
 #include "audio.h"
 #include "autostart.h"
@@ -146,6 +147,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
 
     int rc = ui_run();
     voice_mesh_stop();
+    affect_save();
     log_msg("Sokari cerrado.");
     if (mutex) {
         ReleaseMutex(mutex);

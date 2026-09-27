@@ -19,6 +19,20 @@ static const char *DISPLAY_KEYS[DISPLAY_MODE_COUNT] = {"fullscreen", "fullscreen
                                                       "windowed", "minimized"};
 
 static const char *const APPEAR_KEYS[] = {"materializar", "deslizar", "zoom", "ninguna"};
+static const char *const STYLE_KEYS[] = {"puntos", "lineas", "cara_ojos", "cara_boca", "cara_puntos"};
+#define STYLE_COUNT (int)(sizeof STYLE_KEYS / sizeof *STYLE_KEYS)
+
+const char *sphere_style_key(int style)
+{
+    return STYLE_KEYS[style >= 0 && style < STYLE_COUNT ? style : 0];
+}
+
+int sphere_style_from_key(const char *key)
+{
+    for (int i = 0; i < STYLE_COUNT; i++)
+        if (key && !strcmp(key, STYLE_KEYS[i])) return i;
+    return 0;
+}
 
 const char *appear_anim_key(int anim)
 {
@@ -142,7 +156,7 @@ static void apply_kv(AppConfig *c, const char *key, const char *value)
     } else if (!strcmp(key, "SOKARI_DUCK")) {
         c->duck = parse_bool(value);
     } else if (!strcmp(key, "SOKARI_SPHERE_STYLE")) {
-        c->sphere_style = !strcmp(value, "lineas") ? 1 : 0;
+        c->sphere_style = sphere_style_from_key(value);
     } else if (!strcmp(key, "SOKARI_ANIMATION")) {
         c->appear_anim = appear_anim_from_key(value);
     } else if (!strcmp(key, "SOKARI_ORB_POS")) {
@@ -222,7 +236,7 @@ static bool save_locked(void)
     sb_appendf(&sb, "SOKARI_RESOLUTION=%d\n", g_cfg.resolution);
     sb_appendf(&sb, "SOKARI_VOLUME=%d\n", g_cfg.volume);
     sb_appendf(&sb, "SOKARI_WAKE_SENSITIVITY=%d\n", g_cfg.wake_sensitivity);
-    sb_appendf(&sb, "SOKARI_SPHERE_STYLE=%s\n", g_cfg.sphere_style == 1 ? "lineas" : "puntos");
+    sb_appendf(&sb, "SOKARI_SPHERE_STYLE=%s\n", sphere_style_key(g_cfg.sphere_style));
     sb_appendf(&sb, "SOKARI_ANIMATION=%s\n", appear_anim_key(g_cfg.appear_anim));
     sb_appendf(&sb, "SOKARI_END_SILENCE=%s\n", g_cfg.end_silence == 0 ? "corta" : g_cfg.end_silence == 2 ? "larga" : "normal");
     sb_appendf(&sb, "SOKARI_DUCK=%d\n", g_cfg.duck ? 1 : 0);
@@ -413,6 +427,14 @@ bool config_mexa(void)
 {
     AcquireSRWLockShared(&g_lock);
     bool v = g_cfg.mexa;
+    ReleaseSRWLockShared(&g_lock);
+    return v;
+}
+
+bool config_face(void)
+{
+    AcquireSRWLockShared(&g_lock);
+    bool v = g_cfg.sphere_style >= 2;
     ReleaseSRWLockShared(&g_lock);
     return v;
 }

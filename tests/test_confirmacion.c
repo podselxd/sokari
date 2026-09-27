@@ -13,6 +13,7 @@
 
 #include "resource.h"
 #include "resources.h"
+#include "affect.h"
 #include "agent.h"
 #include "skills.h"
 #include "config.h"
@@ -557,6 +558,53 @@ static void test_nombre(void)
     conv_destroy(c);
 }
 
+/* La cara (beta): a la IA se le pide la etiqueta de afecto solo con una cara
+   puesta, y la etiqueta nunca llega a lo que se dice (voz y subtítulos) ni al
+   historial. */
+static void test_afecto(void)
+{
+    printf("-- la etiqueta de la cara --\n");
+    AppConfig cfg = config_snapshot();
+    int style = cfg.sphere_style;
+    Conversation *c = conv_create(false);
+    cfg.sphere_style = 0; /* el halo de puntos */
+    config_apply(&cfg);
+    script("Es lo que queda de una estrella como el Sol.", NULL, NULL);
+    free(say(c, "¿qué es una enana blanca?"));
+    check(!strstr(g_last_sent, "[afecto:"), "con el halo de puntos no se le pide la etiqueta (ni un token de más)");
+
+    cfg.sphere_style = 2; /* cara: solo ojos */
+    config_apply(&cfg);
+    script("¡Claro! Es una estrella muerta muy densa. [afecto: alegría 0.7]", NULL, NULL);
+    char *r = say(c, "¿y una estrella de neutrones?");
+    check(strstr(g_last_sent, "[afecto: alegría 0.6]") != NULL, "con una cara puesta sí se le pide");
+    check(r && !strcmp(r, "¡Claro! Es una estrella muerta muy densa."), "la etiqueta no se dice ni sale en subtítulos");
+    free(r);
+    float v, a;
+    affect_target(&v, &a);
+    check(v > 0.3f, "y sí mueve el afecto hacia la alegría");
+    script("Una estrella de neutrones que gira. [afecto: tris", NULL, NULL);
+    r = say(c, "¿qué es un púlsar?");
+    check(!strstr(g_last_sent, "alegría 0.7"), "ni se queda en el historial");
+    check(r && !strcmp(r, "Una estrella de neutrones que gira."), "cortada al final tampoco se dice");
+    free(r);
+    script("[afecto: neutral 0.5]", NULL, NULL);
+    r = say(c, "¿qué es un cuásar?");
+    check(r && !strstr(r, "afecto") && !strstr(r, "["), "si solo trae la etiqueta, no se dice nada raro");
+    free(r);
+    script("¿Quieres que mueva a.txt a la carpeta b? [afecto: neutral 0.5]",
+           "tool:mover_archivo {\"origen\":\"C:\\\\a.txt\",\"destino_carpeta\":\"C:\\\\b\"}", NULL);
+    g_ran[0] = 0;
+    r = say(c, "mueve a.txt a la carpeta b");
+    check(strstr(g_ran, "mover_archivo") && r && !strcmp(r, "Moví a.txt a la carpeta b."),
+          "con la etiqueta al final, igual se da cuenta de que pregunta (y con acceso completo lo hace)");
+    free(r);
+    cfg.sphere_style = style;
+    config_apply(&cfg);
+    config_free(&cfg);
+    conv_destroy(c);
+}
+
 static void test_menos_cupo(void)
 {
     printf("-- menos cupo por pedido --\n");
@@ -1038,6 +1086,7 @@ int wmain(void)
     test_sin_listo_falso();
     test_nombre();
     test_menos_cupo();
+    test_afecto();
     test_respuestas_limpias();
     test_youtube();
     test_frases_del_log();

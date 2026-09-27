@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "affect.h"
 #include "agent.h"
 #include "audio.h"
 #include "config.h"
@@ -206,6 +207,7 @@ int main(int argc, char **argv)
     if (gui && !text && !voice && !wav && !mesh_cmd) {
         /* Una sola Sokari: si ya hay una abierta, esto solo le avisa (y sale). */
         int rc = ui_run(argc, argv);
+        affect_save();
         log_msg("Sokari cerrado.");
         return rc;
     }
@@ -236,6 +238,7 @@ int main(int argc, char **argv)
     /* Sin la extensión de GNOME no puede ver ventanas ni oprimir teclas. */
     if (!wav) gnome_extension_enable();
     int rc = text ? run_text() : run_voice(wav);
+    affect_save();
     log_msg("Sokari cerrado.");
     return rc;
 }
