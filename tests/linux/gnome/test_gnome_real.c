@@ -12,10 +12,12 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <gio/gio.h>
+#include <gtk/gtk.h>
 
 #include "config.h"
 #include "linux/acciones.h"
 #include "linux/gnome.h"
+#include "linux/linux.h"
 #include "linux/proc.h"
 #include "tools.h"
 #include "util.h"
@@ -304,6 +306,10 @@ static pid_t start_sokari(const char *arg)
 static void test_ventana_de_sokari(void)
 {
     printf("-- la ventana de Sokari --\n");
+    char *problem = gtk_init_check(NULL, NULL) ? ui_window_problems() : xstrdup("GTK no abrió la pantalla");
+    if (problem) printf("      (%s)\n", problem);
+    check(!problem, "su barra de arriba se ve: Hablar, el menú y la X (y con ella se puede mover)");
+    free(problem);
     if (!getenv("SOKARI_BIN")) {
         printf("      (sin SOKARI_BIN: se omite)\n");
         return;

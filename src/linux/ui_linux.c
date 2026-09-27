@@ -52,6 +52,9 @@ typedef struct {
     float voice, pulse; /* los del cuadro que sigue */
     char *status_text; /* lo que dijo app_status; "" = el de cada estado */
     bool voice_started, talk_pending, hide_notice_shown, fullscreen;
+    /* Un clic en la esfera la calla o le habla; arrastrarla mueve la ventana. */
+    bool pressed;
+    double press_x, press_y;
     /* Entrar y salir de la pantalla: la ventana se esconde cuando la esfera
        terminó de irse (on_tick). fresh: se acaba de mostrar, el reloj
        arranca de nuevo. */
@@ -300,12 +303,43 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer u)
 }
 
 /* Un clic en la esfera: si habla o piensa, la calla; si no, te escucha. */
-static gboolean on_sphere_click(GtkWidget *w, GdkEventButton *e, gpointer u)
+/* Soltar sin haberla arrastrado es un clic: la calla si está hablando o
+   pensando, y si no, le habla. Si se arrastra más de 6 px, mueve la ventana
+   (en Wayland una app no puede moverse sola: se lo pide a GNOME). */
+static gboolean on_sphere_press(GtkWidget *w, GdkEventButton *e, gpointer u)
 {
     if (e->type != GDK_BUTTON_PRESS || e->button != 1) return FALSE;
+    U.pressed = true;
+    U.press_x = e->x_root;
+    U.press_y = e->y_root;
+    return TRUE;
+}
+
+static gboolean on_sphere_motion(GtkWidget *w, GdkEventMotion *e, gpointer u)
+{
+    if (!U.pressed || !(e->state & GDK_BUTTON1_MASK)) return FALSE;
+    double dx = e->x_root - U.press_x, dy = e->y_root - U.press_y;
+    if (dx * dx + dy * dy < 36) return TRUE;
+    U.pressed = false;
+    gtk_window_begin_move_drag(GTK_WINDOW(U.win), 1, (gint)e->x_root, (gint)e->y_root, e->time);
+    return TRUE;
+}
+
+static gboolean on_sphere_release(GtkWidget *w, GdkEventButton *e, gpointer u)
+{
+    if (e->button != 1 || !U.pressed) return FALSE;
+    U.pressed = false;
     int st = g_atomic_int_get(&g_state);
     if (st == JV_SPEAKING || st == JV_THINKING) voice_skip();
     else if (U.voice_started) voice_trigger();
+    return TRUE;
+}
+
+/* El fondo (alrededor de la esfera y los subtítulos) también mueve la ventana. */
+static gboolean on_background_press(GtkWidget *w, GdkEventButton *e, gpointer u)
+{
+    if (e->type != GDK_BUTTON_PRESS || e->button != 1) return FALSE;
+    gtk_window_begin_move_drag(GTK_WINDOW(U.win), 1, (gint)e->x_root, (gint)e->y_root, e->time);
     return TRUE;
 }
 
@@ -604,6 +638,58 @@ static GtkWidget *label(const char *cls, bool wrap)
     return l;
 }
 
+/* La barra de arriba: Hablar, el título, el menú y cerrar. */
+static GtkWidget *titlebar_new(void)
+{
+    GtkWidget *bar = gtk_header_bar_new();
+    gtk_header_bar_set_title(GTK_HEADER_BAR(bar), "Sokari");
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(bar), TRUE);
+    GMenu *menu = g_menu_new();
+    g_menu_append(menu, "Hablarle ahora", "app.hablar");
+    g_menu_append(menu, "Micrófono en silencio", "app.silencio");
+    g_menu_append(menu, "Configuración", "app.configuracion");
+    g_menu_append(menu, "Tus PCs", "app.malla");
+    g_menu_append(menu, "Buscar actualización", "app.actualizar");
+    g_menu_append(menu, "Salir", "app.salir");
+    GtkWidget *mb = gtk_menu_button_new();
+    gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(mb), G_MENU_MODEL(menu));
+    gtk_button_set_image(GTK_BUTTON(mb), gtk_image_new_from_icon_name("open-menu-symbolic", GTK_ICON_SIZE_BUTTON));
+    g_object_unref(menu);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(bar), mb);
+    GtkWidget *talk = gtk_button_new_with_label("Hablar");
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(talk), "app.hablar");
+    gtk_style_context_add_class(gtk_widget_get_style_context(talk), "suggested-action");
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(bar), talk);
+    /* Mostrarla: en GTK 3 nace escondida y sin ella la ventana se queda sin
+       barra (sin Hablar, sin el menú, sin la X y sin poder moverla). */
+    gtk_widget_show_all(bar);
+    return bar;
+}
+
+/* Para las pruebas (necesita pantalla): lo que falla en la barra, o NULL. */
+char *ui_window_problems(void)
+{
+    GtkWidget *bar = titlebar_new();
+    g_object_ref_sink(bar);
+    char *problem = NULL;
+    bool talk = false, menu = false;
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(bar));
+    for (GList *k = kids; k; k = k->next) {
+        const char *action = GTK_IS_ACTIONABLE(k->data) ? gtk_actionable_get_action_name(GTK_ACTIONABLE(k->data)) : NULL;
+        if (action && !strcmp(action, "app.hablar")) talk = gtk_widget_get_visible(k->data);
+        if (GTK_IS_MENU_BUTTON(k->data)) menu = gtk_widget_get_visible(k->data);
+    }
+    g_list_free(kids);
+    if (!gtk_widget_get_visible(bar))
+        problem = xstrdup("la barra de arriba nace escondida (sin ella no hay Hablar, ni menú, ni X, ni cómo moverla)");
+    else if (!talk) problem = xstrdup("no se ve el botón Hablar");
+    else if (!menu) problem = xstrdup("no se ve el botón del menú");
+    else if (!gtk_header_bar_get_show_close_button(GTK_HEADER_BAR(bar))) problem = xstrdup("no tiene la X para cerrar");
+    gtk_widget_destroy(bar);
+    g_object_unref(bar);
+    return problem;
+}
+
 static void build_window(void)
 {
     sphere_appear_init(&U.ap);
@@ -627,26 +713,7 @@ static void build_window(void)
         g_object_unref(ld);
     }
 
-    GtkWidget *bar = gtk_header_bar_new();
-    gtk_header_bar_set_title(GTK_HEADER_BAR(bar), "Sokari");
-    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(bar), TRUE);
-    GMenu *menu = g_menu_new();
-    g_menu_append(menu, "Hablarle ahora", "app.hablar");
-    g_menu_append(menu, "Micrófono en silencio", "app.silencio");
-    g_menu_append(menu, "Configuración", "app.configuracion");
-    g_menu_append(menu, "Tus PCs", "app.malla");
-    g_menu_append(menu, "Buscar actualización", "app.actualizar");
-    g_menu_append(menu, "Salir", "app.salir");
-    GtkWidget *mb = gtk_menu_button_new();
-    gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(mb), G_MENU_MODEL(menu));
-    gtk_button_set_image(GTK_BUTTON(mb), gtk_image_new_from_icon_name("open-menu-symbolic", GTK_ICON_SIZE_BUTTON));
-    g_object_unref(menu);
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(bar), mb);
-    GtkWidget *talk = gtk_button_new_with_label("Hablar");
-    gtk_actionable_set_action_name(GTK_ACTIONABLE(talk), "app.hablar");
-    gtk_style_context_add_class(gtk_widget_get_style_context(talk), "suggested-action");
-    gtk_header_bar_pack_start(GTK_HEADER_BAR(bar), talk);
-    gtk_window_set_titlebar(GTK_WINDOW(U.win), bar);
+    gtk_window_set_titlebar(GTK_WINDOW(U.win), titlebar_new());
 
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_style_context_add_class(gtk_widget_get_style_context(box), "fondo");
@@ -654,9 +721,11 @@ static void build_window(void)
     U.area = gtk_drawing_area_new();
     gtk_widget_set_size_request(U.area, 220, 220);
     gtk_widget_set_vexpand(U.area, TRUE);
-    gtk_widget_add_events(U.area, GDK_BUTTON_PRESS_MASK);
+    gtk_widget_add_events(U.area, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_BUTTON1_MOTION_MASK);
     g_signal_connect(U.area, "draw", G_CALLBACK(on_draw), NULL);
-    g_signal_connect(U.area, "button-press-event", G_CALLBACK(on_sphere_click), NULL);
+    g_signal_connect(U.area, "button-press-event", G_CALLBACK(on_sphere_press), NULL);
+    g_signal_connect(U.area, "motion-notify-event", G_CALLBACK(on_sphere_motion), NULL);
+    g_signal_connect(U.area, "button-release-event", G_CALLBACK(on_sphere_release), NULL);
     gtk_widget_add_tick_callback(U.area, on_tick, NULL, NULL);
     gtk_box_pack_start(GTK_BOX(box), U.area, TRUE, TRUE, 0);
     U.sub_sokari = label("ella", true);
@@ -665,13 +734,16 @@ static void build_window(void)
     gtk_box_pack_start(GTK_BOX(box), U.sub_sokari, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), U.sub_user, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), U.status, FALSE, FALSE, 4);
-    gtk_container_add(GTK_CONTAINER(U.win), box);
+    GtkWidget *back = gtk_event_box_new();
+    gtk_container_add(GTK_CONTAINER(back), box);
+    g_signal_connect(back, "button-press-event", G_CALLBACK(on_background_press), NULL);
+    gtk_container_add(GTK_CONTAINER(U.win), back);
     g_signal_connect(U.win, "delete-event", G_CALLBACK(on_delete), NULL);
     g_signal_connect(U.win, "key-press-event", G_CALLBACK(on_key), NULL);
     g_signal_connect(U.win, "notify::is-active", G_CALLBACK(on_active_changed), NULL);
     U.cur = SPHERE_IDLE;
     refresh_status();
-    gtk_widget_show_all(box);
+    gtk_widget_show_all(back);
     bool subs = subtitles_on();
     gtk_widget_set_visible(U.sub_user, subs);
     gtk_widget_set_visible(U.sub_sokari, subs);
