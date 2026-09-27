@@ -28,6 +28,8 @@ bool settings_linux_is_open(void);
    Probar la animación de entrar y salir, aplicar lo que se guardó, y avisar
    si la primera vez se cerró sin API key. */
 void ui_linux_preview_appear(int anim);
+/* El estilo elegido en las miniaturas, sin guardar (-1: el guardado). */
+void ui_linux_preview_style(int style);
 void ui_linux_settings_saved(bool first_run);
 void ui_linux_settings_cancelled(bool first_run);
 

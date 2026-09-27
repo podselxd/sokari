@@ -134,9 +134,11 @@ unsigned char *wav_encode(const int16_t *pcm, size_t samples, int sample_rate, s
 /* ---- run_tool de mentira: anota qué se ejecutó ---- */
 
 static char g_ran[4096];
+static volatile LONG *g_interrupt_on_tool; /* como si la interrumpieras durante la primera acción */
 
 char *run_tool(const char *name, const char *arguments_json)
 {
+    if (g_interrupt_on_tool) InterlockedExchange(g_interrupt_on_tool, 1);
     size_t n = strlen(g_ran);
     snprintf(g_ran + n, sizeof g_ran - n, "%s%s %s", n ? " | " : "", name, arguments_json);
     if (!strcmp(name, "leer_pagina"))
@@ -1059,6 +1061,34 @@ static void test_teclado(void)
     conv_destroy(c);
 }
 
+/* La interrumpes («Hey Sokari», el atajo o un clic) mientras piensa: ya no
+   llama a la IA, no hace las acciones que faltaban y no dice nada. */
+static void test_interrumpir(void)
+{
+    printf("-- interrumpirla mientras piensa --\n");
+    Conversation *c = conv_create(false);
+    volatile LONG flag = 1;
+    conv_set_cancel(c, &flag);
+    script("tool:open_app {\"nombre\":\"spotify\"}", "Abrí Spotify.", NULL);
+    TurnResult r = say_turn(c, "prepárame todo para la clase de mañana");
+    check(!r.reply && !*g_ran && r.keep_going,
+          "interrumpida antes de empezar: no hace nada, no dice nada y te sigue escuchando");
+    flag = 0;
+    g_interrupt_on_tool = &flag;
+    script("tool:open_app {\"nombre\":\"spotify\"}; tool:type_text {\"texto\":\"hola\",\"enviar\":true}",
+           "Listo.", NULL);
+    r = say_turn(c, "haz lo que te pedí ayer de la presentación");
+    g_interrupt_on_tool = NULL;
+    check(!r.reply && strstr(g_ran, "open_app") && !strstr(g_ran, "type_text"),
+          "interrumpida durante una acción: esa ya se hizo, pero la siguiente ya no, ni contesta");
+    conv_set_cancel(c, NULL);
+    script("Aquí sigo.", NULL, NULL);
+    r = say_turn(c, "qué hora es en japón ahorita");
+    check(r.reply != NULL, "la siguiente orden funciona normal");
+    free(r.reply);
+    conv_destroy(c);
+}
+
 int wmain(void)
 {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -1075,6 +1105,7 @@ int wmain(void)
         cJSON_Delete(every);
     }
     test_respuestas();
+    test_interrumpir();
     test_flujo();
     test_skill_ia();
     test_menos_preguntas();

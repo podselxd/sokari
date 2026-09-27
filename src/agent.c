@@ -1,3 +1,5 @@
+#include <windows.h> /* Interlocked* (en Linux, src/linux/include/windows.h) */
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +36,18 @@ struct Conversation {
     char *pending_args;
     char *turn_skill;      /* instrucciones de una skill de IA tuya, solo para este pedido */
     char *turn_skill_name;
+    volatile LONG *cancel; /* quien habla la interrumpió: ya no hace lo que faltaba (voice.c) */
 };
+
+void conv_set_cancel(Conversation *c, volatile LONG *flag)
+{
+    c->cancel = flag;
+}
+
+static bool interrupted(const Conversation *c)
+{
+    return c->cancel && InterlockedCompareExchange((LONG *)c->cancel, 0, 0) != 0;
+}
 
 static cJSON *g_tools;
 static char *g_system_prompt;
@@ -1118,13 +1131,17 @@ static TurnResult process_turn(Conversation *c, const char *text)
 
     char *reply = NULL;
     GroqError err = {0};
-    bool failed = false, ending = false, auto_yes = false;
+    bool failed = false, ending = false, auto_yes = false, stopped = false;
     bool acted = false, nudged = false, nudge_now = false; /* ¿usó alguna herramienta? ¿ya se le reclamó? */
     bool all_tools = false, filtered = false;              /* ¿se mandaron todas las herramientas? */
     bool forget_after = false;                             /* se borró la memoria: olvidar también esto */
     float tag[AFF_COUNT];                                  /* la etiqueta de la cara, si la trajo */
     int ntag = 0;
-    for (int round = 0; round < MAX_TOOL_ROUNDS && !reply && !failed; round++) {
+    for (int round = 0; round < MAX_TOOL_ROUNDS && !reply && !failed && !stopped; round++) {
+        if (interrupted(c)) {
+            stopped = true;
+            break;
+        }
         app_status(round ? "Trabajando…" : "Pensando…");
         cJSON *msgs = build_request(c);
         if (nudge_now) {
@@ -1150,6 +1167,12 @@ static TurnResult process_turn(Conversation *c, const char *text)
         cJSON *msg = groq_chat(msgs, tools, &err);
         cJSON_Delete(tools);
         cJSON_Delete(msgs);
+        if (interrupted(c)) {
+            /* Te interrumpió mientras la IA contestaba: no se usa lo que dijo. */
+            cJSON_Delete(msg);
+            stopped = true;
+            break;
+        }
         if (!msg) {
             failed = true;
             break;
@@ -1251,6 +1274,10 @@ static TurnResult process_turn(Conversation *c, const char *text)
                                        desc);
                 }
                 free(desc);
+            } else if (interrupted(c)) {
+                /* Nunca una acción después de que la interrumpiste. */
+                stopped = true;
+                result = xstrdup("No se hizo: quien habla interrumpió antes.");
             } else {
                 result = run_tool(name, args);
                 affect_tool(name, tool_succeeded(result));
@@ -1294,6 +1321,21 @@ static TurnResult process_turn(Conversation *c, const char *text)
     app_status("");
 
     free(other);
+    if (stopped) {
+        /* Lo que ya hizo, hecho está; lo demás no se hace ni se dice. */
+        log_msg("Interrumpida: no hago lo que faltaba ni digo la respuesta.");
+        free(reply);
+        groq_error_free(&err);
+        cJSON *am = cJSON_CreateObject();
+        cJSON_AddStringToObject(am, "role", "assistant");
+        cJSON_AddStringToObject(am, "content", "(Me interrumpiste antes de terminar.)");
+        cJSON_AddItemToArray(c->history, am);
+        shrink_tool_results(c->history, turn_start);
+        trim_history(c);
+        r.reply = NULL;
+        r.keep_going = true;
+        return r;
+    }
     if (failed) {
         affect_event(err.status == GROQ_RATE_LIMITED ? AFF_EV_QUOTA : AFF_EV_NETWORK_ERROR);
         while (cJSON_GetArraySize(c->history) > turn_start) cJSON_DeleteItemFromArray(c->history, turn_start);

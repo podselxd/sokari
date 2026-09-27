@@ -58,6 +58,7 @@ typedef struct {
     /* El modo de pantalla que tiene la ventana (DisplayMode) y el que pide
        Configuración; «Aparecer solo cuando le hablas». */
     int mode, want_mode;
+    int preview_style; /* el que se está probando en Configuración; -1: el guardado */
     bool only_talking, old_extension_told;
     int last_state;
     guint hide_timer, where_timer, where_tries;
@@ -269,7 +270,7 @@ static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer u)
     U.pulse = st == JV_SPEAKING ? (float)fmin(1.0, U.pulse_env / fmax(0.3, U.pulse_peak)) : 0.0f;
     U.angle += U.cur.rotation_speed * dt * (1.0 + U.voice * 0.8);
     U.voice_t += dt * (1.0 + 2.5 * U.voice);
-    U.face_on = sphere_style_is_face((SphereStyle)U.want_style);
+    U.face_on = sphere_style_is_face((SphereStyle)(U.preview_style >= 0 ? U.preview_style : U.want_style));
     if (U.face_on) {
         if (!U.face) U.face = face_create((unsigned)g_get_monotonic_time());
         FaceInput in;
@@ -294,7 +295,7 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer u)
     int side = W < H ? W : H;
     if (side < 16) return FALSE;
     int base = side > SPHERE_MAX ? SPHERE_MAX : side;
-    int style = U.want_style;
+    int style = U.preview_style >= 0 ? U.preview_style : U.want_style;
     if (!U.sr || base != U.base || style != U.style) {
         sphere_destroy(U.sr);
         if (U.surf) cairo_surface_destroy(U.surf);
@@ -559,8 +560,19 @@ void ui_linux_preview_appear(int anim)
 
 static gboolean apply_mode_idle(gpointer u);
 
+static void show_window(void);
+
+/* La esfera muestra el estilo elegido en Configuración antes de guardarlo;
+   si estaba escondida, aparece para que se vea. */
+void ui_linux_preview_style(int style)
+{
+    U.preview_style = style >= 0 && style < SPHERE_STYLE_COUNT ? style : -1;
+    if (U.preview_style >= 0 && U.win && !gtk_widget_get_visible(U.win)) show_window();
+}
+
 void ui_linux_settings_saved(bool first_run)
 {
+    U.preview_style = -1;
     gtk_widget_set_visible(U.sub_user, subtitles_on());
     gtk_widget_set_visible(U.sub_sokari, subtitles_on());
     /* Después de que se cierre Configuración: puede tocar rehacer la ventana. */
@@ -571,6 +583,7 @@ void ui_linux_settings_saved(bool first_run)
 
 void ui_linux_settings_cancelled(bool first_run)
 {
+    U.preview_style = -1;
     if (first_run && !has_key())
         app_notify("Sokari", "Sin tu API key de Groq todavía no puedo contestarte. Abre Configuración cuando la tengas.");
 }
@@ -1186,6 +1199,7 @@ int ui_run(int argc, char **argv)
     gtk_disable_setlocale();
     setlocale(LC_CTYPE, "");
     setlocale(LC_MESSAGES, "");
+    U.preview_style = -1;
     U.app = gtk_application_new(APP_ID, G_APPLICATION_HANDLES_COMMAND_LINE);
     g_signal_connect(U.app, "command-line", G_CALLBACK(on_command_line), NULL);
     int rc = g_application_run(G_APPLICATION(U.app), argc, argv);

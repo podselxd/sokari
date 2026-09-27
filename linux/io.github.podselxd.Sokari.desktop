@@ -10,8 +10,12 @@ Categories=Utility;Accessibility;
 Keywords=asistente;voz;hey sokari;
 StartupNotify=true
 X-GNOME-UsesNotifications=true
-Actions=hablar;
+Actions=hablar;desinstalar;
 
 [Desktop Action hablar]
 Name=Hablarle ahora
 Exec=sokari --hablar
+
+[Desktop Action desinstalar]
+Name=Desinstalar Sokari
+Exec=sokari --desinstalar

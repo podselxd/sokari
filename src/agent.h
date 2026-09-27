@@ -1,6 +1,8 @@
 #ifndef SOKARI_AGENT_H
 #define SOKARI_AGENT_H
 
+#include <windows.h> /* LONG (en Linux, src/linux/include/windows.h) */
+
 #include <stdbool.h>
 
 typedef struct Conversation Conversation;
@@ -36,5 +38,8 @@ char *agent_clean_reply(const char *reply);
    palabra de apagado (chequeo local, nunca llega a Groq) -> despedida ->
    modelo + herramientas. Llamar con state_lock() tomado. */
 TurnResult agent_process(Conversation *c, const char *text);
+/* Mientras agent_process corre (en otro hilo), si *flag deja de ser 0 ya no
+   llama a la IA ni hace acciones y regresa sin respuesta. NULL: sin eso. */
+void conv_set_cancel(Conversation *c, volatile LONG *flag);
 
 #endif

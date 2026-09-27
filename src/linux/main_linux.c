@@ -21,6 +21,7 @@
 #include "linux/linux.h"
 #include "log.h"
 #include "memory.h"
+#include "uninstall.h"
 #include "update.h"
 #include "mesh.h"
 #include "util.h"
@@ -39,6 +40,7 @@ static void usage(void)
            "  sokari --permitir-firewall abre el puerto de la malla solo para tu red de Tailscale\n"
            "  sokari --revisar-gnome     revisa que la extensión de GNOME te atienda (ventanas y teclas)\n"
            "  sokari --actualizar        baja e instala la versión nueva, si hay (pide tu contraseña)\n"
+           "  sokari --desinstalar       quita Sokari (pregunta antes y pide tu contraseña)\n"
            "  sokari --version           la versión\n\n"
            "La configuración está en ~/.config/sokari/config.env (tu API key de Groq va en\n"
            "GROQ_API_KEY=...). La memoria y tus datos, en ~/.local/share/sokari.\n",
@@ -168,7 +170,7 @@ static int check_gnome(void)
 
 int main(int argc, char **argv)
 {
-    bool text = false, voice = false, gui = argc == 1;
+    bool text = false, voice = false, gui = argc == 1, uninstall = false;
     const char *wav = NULL, *mesh_cmd = NULL;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--hablar") || !strcmp(argv[i], "--autostart") || !strcmp(argv[i], "--mostrar")) {
@@ -185,6 +187,8 @@ int main(int argc, char **argv)
                    !strcmp(argv[i], "--permitir-firewall") || !strcmp(argv[i], "--revisar-gnome") ||
                    !strcmp(argv[i], "--actualizar")) {
             mesh_cmd = argv[i];
+        } else if (!strcmp(argv[i], "--desinstalar")) {
+            uninstall = true;
         } else if (!strcmp(argv[i], "--version")) {
             printf("%s\n", SOKARI_VERSION);
             return 0;
@@ -192,6 +196,10 @@ int main(int argc, char **argv)
             usage();
             return strcmp(argv[i], "--ayuda") && strcmp(argv[i], "--help") ? 1 : 0;
         }
+    }
+    if (uninstall) {
+        paths_init();
+        return uninstall_run();
     }
     if (!text && !voice && !wav && !mesh_cmd && !gui) {
         usage();

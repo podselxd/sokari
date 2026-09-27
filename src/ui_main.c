@@ -197,11 +197,20 @@ static void primary_monitor(RECT *out)
     *out = mi.rcMonitor;
 }
 
+static volatile LONG g_preview_style = -1;
+
+void ui_preview_style(int style)
+{
+    LONG v = style >= 0 && style < SPHERE_STYLE_COUNT ? style : -1;
+    if (InterlockedExchange(&g_preview_style, v) != v) ui_config_changed();
+}
+
 static void load_display_config(void)
 {
     AppConfig c = config_snapshot();
+    LONG preview = InterlockedCompareExchange(&g_preview_style, 0, 0);
     U.mode = c.display_mode;
-    U.style = c.sphere_style;
+    U.style = preview >= 0 ? (int)preview : c.sphere_style;
     U.anim = c.appear_anim;
     U.face_symbols = c.face_symbols;
     U.res = c.resolution;
