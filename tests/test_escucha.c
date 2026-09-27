@@ -89,7 +89,12 @@ static int16_t *sentence(size_t *n)
     return out;
 }
 
-typedef enum { N_SILENCE, N_PINK, N_WHITE, N_HUM } Noise;
+typedef enum { N_SILENCE, N_PINK, N_WHITE, N_HUM, N_TALK } Noise;
+
+/* Una tele (o alguien platicando) atrás: otra voz, con sus pausas. */
+static int16_t *g_talk;
+static size_t g_ntalk;
+static double g_talk_rms;
 
 static double g_b0, g_b1, g_b2;
 static double noise_sample(Noise k, long i)
@@ -103,6 +108,7 @@ static double noise_sample(Noise k, long i)
         return (g_b0 + g_b1 + g_b2 + r * 0.1848) / 3.0;
     case N_WHITE: return r;
     case N_HUM: return 0.6 * sin(2 * M_PI * 60 * t) + 0.25 * sin(2 * M_PI * 120 * t) + 0.15 * sin(2 * M_PI * 180 * t);
+    case N_TALK: return g_ntalk ? g_talk[(size_t)(i + 5000) % g_ntalk] / g_talk_rms : 0;
     default: return 0;
     }
 }
@@ -117,6 +123,21 @@ typedef struct {
 /* 6 s de fondo (Sokari esperando "Hey Sokari" y aprendiendo el ruido),
    luego la orden: speech (repetida reps veces, con pausa pause_s entre
    repeticiones) a snr_db sobre el ruido, y 12 s más de ruido. */
+/* Cómo cambia tu volumen durante la orden (1 = igual). */
+typedef enum { V_SAME, V_SHOUT, V_BANG, V_DROP } Volume;
+static Volume g_volume;
+static double g_drop = 0.3; /* V_DROP: cuánto baja (0.3 = 10 dB) */
+
+static double volume_at(long s, long len)
+{
+    switch (g_volume) {
+    case V_SHOUT: return s < 8000 ? 5.0 : 1.0;   /* «¡Sokari!» gritado (+14 dB), luego normal */
+    case V_BANG: return s < 4000 ? 10.0 : 1.0;   /* un golpe o tos muy fuerte (+20 dB) al empezar */
+    case V_DROP: return s < len / 2 ? 1.0 : g_drop; /* te volteas: la otra mitad más bajito */
+    default: return 1.0;
+    }
+}
+
 static Result run(Noise noise, double snr_db, int reps, double pause_s, int end_frames)
 {
     srand(7);
@@ -139,7 +160,7 @@ static Result run(Noise noise, double snr_db, int reps, double pause_s, int end_
         long s = i - pre - lead;
         if (s >= 0 && s < speech_len) {
             long in = s % ((long)ns + gap);
-            if (in < (long)ns) v += one[in];
+            if (in < (long)ns) v += one[in] * volume_at(s, speech_len);
         }
         x[i] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
     }
@@ -149,9 +170,13 @@ static Result run(Noise noise, double snr_db, int reps, double pause_s, int end_
     const float silence = 90; /* el umbral calibrado de tu log */
     Result r = {0};
     long i = 0;
-    for (; i + MIC_FRAME <= pre; i += MIC_FRAME) listener_feed(l, x + i, silence);
+    for (; i + MIC_FRAME <= pre; i += MIC_FRAME) {
+        listener_feed(l, x + i, silence);
+        listener_learn(l, x + i); /* como Sokari esperando "Hey Sokari" */
+    }
     Recording rec;
     rec_begin(&rec, end_frames);
+    rec_set_background(&rec, listener_background(l));
     for (; i + MIC_FRAME <= total; i += MIC_FRAME)
         if (rec_feed(&rec, x + i, listener_feed(l, x + i, silence))) break;
     long end = i + MIC_FRAME, speech_end = pre + lead + speech_len;
@@ -183,6 +208,25 @@ static void test_escucha(void)
 {
     size_t ns;
     free(sentence(&ns));
+    /* La tele: otras voces (cualquier voz sirve) hablando de corrido. */
+    size_t n1, n2;
+    int16_t *a = load_wav16k(L"oye_socorro.wav", &n1), *b = load_wav16k(L"hey_safari.wav", &n2);
+    if (a && b) {
+        g_talk = malloc(sizeof *g_talk * (n1 + n2));
+        g_ntalk = 0;
+        for (int k = 0; k < 2; k++) {
+            const int16_t *src = k ? b : a;
+            size_t ns2 = k ? n2 : n1;
+            for (size_t f = 0; f + 320 <= ns2; f += 320)
+                if (rms(src + f, 320) > 300) {
+                    memcpy(g_talk + g_ntalk, src + f, sizeof *g_talk * 320);
+                    g_ntalk += 320;
+                }
+        }
+        g_talk_rms = rms(g_talk, g_ntalk);
+    }
+    free(a);
+    free(b);
     double speech = (double)ns / 16000, core = speech_core();
     printf("-- tu voz, con y sin ruido (frase de %.1f s, %.1f s de voz) --\n", speech, core);
     static const struct {
@@ -193,13 +237,44 @@ static void test_escucha(void)
                  {N_PINK, 10, "con ruido rosa 10 dB abajo de tu voz"},
                  {N_PINK, 6, "con ruido rosa 6 dB abajo"},
                  {N_WHITE, 6, "con ruido blanco 6 dB abajo"},
-                 {N_HUM, 6, "con el zumbido de un aparato 6 dB abajo"}};
+                 {N_HUM, 6, "con el zumbido de un aparato 6 dB abajo"},
+                 {N_TALK, 12, "con una tele hablando 12 dB abajo (dijiste «adiós» y ya)"}};
     for (size_t k = 0; k < sizeof CASES / sizeof *CASES; k++) {
         Result r = run(CASES[k].noise, CASES[k].snr, 1, 0, end_silence_frames(END_NORMAL));
         char what[200];
         snprintf(what, sizeof what, "%s: termina %.1f s después de que te callas y manda %.1f s", CASES[k].name,
                  r.after_s, r.sent_s);
-        check(r.heard && r.after_s > 0 && r.after_s < 1.2 && r.sent_s >= core && r.sent_s < speech + 0.8, what);
+        /* Con la tele, lo que se manda trae un poco de ella al principio (lo de
+           antes de que empezaras): lo que importa es que termina. */
+        const double extra = CASES[k].noise == N_TALK ? 1.4 : 0.8;
+        check(r.heard && r.after_s > 0 && r.after_s < 1.2 && r.sent_s >= core && r.sent_s < speech + extra, what);
+    }
+
+    /* Que la tele no cuente no debe cortarte: gritar, un golpe o bajar la voz
+       a media orden (aunque sea larga) nunca terminan la orden antes. */
+    static const struct {
+        Volume volume;
+        double drop;
+        int reps;
+        Noise noise;
+        double snr;
+        const char *name;
+    } VOLUMES[] = {{V_SHOUT, 1, 1, N_PINK, 20, "gritas «¡Sokari!» y sigues normal"},
+                   {V_BANG, 1, 1, N_PINK, 20, "un golpe o una tos muy fuerte al empezar"},
+                   {V_DROP, 0.3, 1, N_PINK, 20, "te volteas y la mitad la dices 10 dB más bajito"},
+                   {V_DROP, 0.3, 3, N_PINK, 20, "lo mismo en una orden de 11 s"},
+                   {V_DROP, 0.25, 4, N_PINK, 20, "y 12 dB más bajito en una de 15 s"},
+                   {V_SAME, 1, 4, N_TALK, 12, "con la tele atrás, una orden de 15 s"}};
+    for (size_t k = 0; k < sizeof VOLUMES / sizeof *VOLUMES; k++) {
+        g_volume = VOLUMES[k].volume;
+        g_drop = VOLUMES[k].drop;
+        Result r = run(VOLUMES[k].noise, VOLUMES[k].snr, VOLUMES[k].reps, 0.25, end_silence_frames(END_NORMAL));
+        g_volume = V_SAME;
+        char what[200];
+        snprintf(what, sizeof what, "%s: no te corta (termina %.1f s después de que te callas, manda %.1f s)",
+                 VOLUMES[k].name, r.after_s, r.sent_s);
+        const double limit = VOLUMES[k].noise == N_TALK ? 2.0 : 1.2;
+        check(r.heard && r.after_s > 0 && r.after_s < limit && r.sent_s >= VOLUMES[k].reps * core, what);
     }
 
     printf("-- el puro ruido no es una orden --\n");

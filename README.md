@@ -36,7 +36,7 @@ No se actualiza solo, porque instalar pide tu contraseña: te avisa cuando sale 
 ## Uso
 
 - Di **"Hey Sokari"** y habla. Puedes decirlo todo de corrido ("Hey Sokari, abre Spotify") o hacer una pausa y esperar el tono.
-- Te escucha solo mientras hablas, hasta 30 s. Termina 0.8 s después de que te callas, aunque siga el ruido de fondo (un ventilador, un zumbido). Si te corta a media frase, en Configuración → Voz y audio elige **Más** (1.2 s); si quieres que conteste antes, **Poco** (0.6 s).
+- Te escucha solo mientras hablas, hasta 30 s. Termina 0.8 s después de que te callas, aunque siga el ruido de fondo (un ventilador, un zumbido) o una tele o gente platicando que ya sonaba antes de que le hablaras, si suena bastante más bajito que tú (unos 9 dB o más; si suena casi tan fuerte como tú, sigue escuchando hasta los 30 s). Si te corta a media frase, en Configuración → Voz y audio elige **Más** (1.2 s); si quieres que conteste antes, **Poco** (0.6 s).
 - Mientras te escucha, baja el volumen de la PC y luego lo regresa, para que un video o música no tapen tu voz. Se apaga en Configuración → Voz y audio. Si no dijiste nada (solo hubo ruido), no manda nada a transcribir.
 - **Ctrl+Alt+J** sirve para hablarle sin decir "Hey Sokari".
 - **"Hey Sokari" es beta.** Se entrenó solo con voces sintéticas. En pruebas con voces que nunca oyó:
@@ -46,7 +46,7 @@ No se actualiza solo, porque instalar pide tu contraseña: te avisa cuando sale 
   Con tu voz todavía no está medido. Si no te oye, usa **Ctrl+Alt+J**; lo que lo arregla es reentrenarlo con grabaciones de tu voz. Subir la sensibilidad ayuda poco. Detalles en [Entrenar "Hey Sokari"](#entrenar-hey-sokari).
 - Después de cada respuesta te sigue escuchando unos segundos, sin que repitas "Hey Sokari".
 - Para callarla mientras habla: di **"Hey Sokari"**, aprieta **Ctrl+Alt+J** o dale **un clic a la esfera**. Todo lo que dice se puede saltar, también las explicaciones largas. Si le das clic mientras piensa, no dice la respuesta (lo que ya hizo no se deshace). Con ella quieta, un clic no hace nada, y si arrastras la esfera flotante, no cuenta como clic. Otros ruidos no la interrumpen.
-- Para cerrar la conversación dile "adiós", "ya vete" o "eso es todo". También termina cuando Sokari se despide o si dejas de hablarle. Si configuraste una palabra de apagado y la dices, Sokari se cierra al instante.
+- Para cerrar la conversación dile "adiós", "ya vete", "eso es todo", "hasta mañana", "luego hablamos" o "me voy a dormir". También termina cuando Sokari se despide o si dejas de hablarle. Si configuraste una palabra de apagado y la dices, Sokari se cierra al instante.
 - Con **Aparecer solo cuando le hablas** (Configuración → Pantalla, prendida de fábrica), la esfera aparece en tu modo de pantalla al hablarle y se esconde al terminar. Al abrir Sokari se ve y se queda hasta tu primera conversación.
 - **Al aparecer y desaparecer** (Configuración → Pantalla), la esfera se anima: **Materializarse** (de fábrica: llega en pedazos y se junta; al irse se dispersa), **Deslizarse** (sube desde abajo de la pantalla y baja al irse), **Zoom** (crece desde un punto y se encoge) o **Ninguna**. Entra en 1 segundo y sale en 0.8. **Probar** te la muestra sin guardar. En Minimizado no hay animación.
 
@@ -69,16 +69,16 @@ Sale al abrir `Sokari.exe` a mano, o desde **Ventana de inicio…** en la bandej
 | Inicio | Iniciar, modo de pantalla, salida de audio y botones rápidos (ver arriba) |
 | Cuenta | API key de Groq, tu nombre, contraseña de tu perfil y palabra de apagado |
 | Pantalla | Modo de pantalla, resolución de la esfera, estilo (de fábrica la cara «solo ojos»; también el halo de puntos, líneas y otras dos caras), los símbolos de la cara, cómo aparece y desaparece (con Probar), subtítulos y "Aparecer solo cuando le hablas" |
-| Voz y audio | Volumen, voz de Windows (Raúl de México por defecto, con botón **Probar**), micrófono, salida de audio, sensibilidad de "Hey Sokari", cuánto espera cuando te callas y bajar el volumen de la PC mientras te escucha |
+| Voz y audio | Volumen, voz de Windows (Sabina de México por defecto, o Raúl si no la tienes; con botón **Probar**), micrófono, salida de audio, sensibilidad de "Hey Sokari", cuánto espera cuando te callas y bajar el volumen de la PC mientras te escucha |
 | General | Iniciar con Windows, sonido de activación, Obsidian y **Acceso completo (menos borrar)** |
 | IA de respaldo | Keys opcionales de NVIDIA, DeepSeek, OpenRouter y GLM (con **Sacar key**) y en qué orden se usan cuando Groq se queda sin cupo |
 | Dispositivos | Tailscale, tus otras PCs (Detectar, Probar, Quitar), permiso en el firewall, Revisar la malla y el secreto para cuentas distintas. Ver [Tus otras PCs](#tus-otras-pcs) |
 
 Modos de pantalla:
 
-- **Pantalla completa** (la de fábrica en Windows): siempre encima de todo. Se aparta sola cuando Sokari abre algo.
+- **Pantalla completa:** siempre encima de todo. Se aparta sola cuando Sokari abre algo.
 - **Pantalla completa sin bordes:** ocupa la pantalla, pero tus ventanas pueden ir encima. Pasa al frente cuando le hablas.
-- **Esfera flotante** (la de fábrica en Linux): una esfera transparente que puedes arrastrar a donde quieras. En Linux, clic derecho abre el menú.
+- **Esfera flotante** (la de fábrica): una esfera transparente que puedes arrastrar a donde quieras. En Linux, clic derecho abre el menú. Con cara tiene un poco más de lienzo alrededor, para que sus gestos (el salto de alegría, inflarse de furia) nunca se corten.
 - **Ventana:** una ventana normal que puedes mover, agrandar o minimizar. **F11** (o doble clic) la pone en pantalla completa y **F11** o **Esc** la regresan. La X la oculta, pero Sokari sigue escuchando.
 - **Minimizado:** igual que Ventana, pero arranca minimizada en la barra de tareas y no se asoma cuando le hablas.
 

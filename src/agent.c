@@ -60,13 +60,20 @@ static const char *FAREWELLS[] = {
     "ya vete", "vete ya", "puedes irte", "te puedes ir", "ya nada gracias", "ya es todo", "retirate", "retírate",
     "ahi nos vidrios", "ahí nos vidrios", "nos vidrios", "ahi nos vemos", "ahí nos vemos", "ahi se ve", "ahí se ve",
     "ya me voy", "luego te hablo", "al rato te hablo", "bye bye", "ahi la vemos", "ahí la vemos", "ahi te ves",
-    "ahí te ves", "me retiro",
+    "ahí te ves", "me retiro", "es todo por hoy", "ya estuvo por hoy", "por hoy es todo",
 };
 
-/* Estas solo son despedida si son casi toda la frase: "ya está abierta
-   Opera" o "nada más abre Spotify" no lo son. */
-static const char *SHORT_FAREWELLS[] = {"nada mas", "nada más", "ya esta", "ya está", "ya estuvo", "camara",
-                                        "cámara",   "buenas noches", "sale bye"};
+/* Estas solo son despedida si son casi toda la frase y lo último que dices
+   (sin contar "gracias", "Sokari" y otras muletillas): "ya está abierta
+   Opera", "nada más abre Spotify" o "¿ya está?" no lo son. Sin acentos, como
+   quedan tras intents_normalize. */
+static const char *SHORT_FAREWELLS[] = {
+    " nada mas ",      " ya esta ",       " ya estuvo ",      " camara ",       " buenas noches ",
+    " sale bye ",      " hasta manana ",  " me voy a dormir ", " luego hablamos ", " hablamos luego ",
+    " nos hablamos ",  " hablamos manana ",
+};
+static const char *FILLERS[] = {"ok",      "okay", "oki", "bueno", "pues", "entonces", "sokari", "gracias",
+                                "muchas", "va",   "sale", "orale", "wey", "guey",     "eh",     "ah"};
 
 /* Cuando Sokari mismo se despide, la conversación también termina (y la
    esfera se esconde si así está configurada). Una pregunta al final no cuenta:
@@ -393,10 +400,39 @@ static bool contains_any(const char *text, const char *const *list, size_t n)
 static bool is_farewell(const char *text)
 {
     if (contains_any(text, FAREWELLS, sizeof FAREWELLS / sizeof *FAREWELLS)) return true;
+    char *t = str_trim(text);
+    size_t n = strlen(t);
+    bool question = n && t[n - 1] == '?';
+    free(t);
+    if (question) return false;
+    /* Las palabras que quedan sin las muletillas, " así ". */
+    char *nm = intents_normalize(text);
+    StrBuf sb;
+    sb_init(&sb);
+    sb_append_char(&sb, ' ');
     int words = 0;
-    for (const char *p = text; *p; p++)
-        if (!isspace((unsigned char)*p) && (p == text || isspace((unsigned char)p[-1]))) words++;
-    return words <= 4 && contains_any(text, SHORT_FAREWELLS, sizeof SHORT_FAREWELLS / sizeof *SHORT_FAREWELLS);
+    for (char *w = nm; *w;) {
+        while (*w == ' ') w++;
+        size_t len = strcspn(w, " ");
+        if (!len) break;
+        bool filler = false;
+        for (size_t i = 0; i < sizeof FILLERS / sizeof *FILLERS && !filler; i++)
+            filler = strlen(FILLERS[i]) == len && !strncmp(w, FILLERS[i], len);
+        if (!filler) {
+            sb_append_n(&sb, w, len);
+            sb_append_char(&sb, ' ');
+            words++;
+        }
+        w += len;
+    }
+    free(nm);
+    bool hit = false;
+    for (size_t i = 0; i < sizeof SHORT_FAREWELLS / sizeof *SHORT_FAREWELLS && !hit && words <= 4; i++) {
+        size_t k = strlen(SHORT_FAREWELLS[i]);
+        hit = sb.len >= k && !strcmp(sb.data + sb.len - k, SHORT_FAREWELLS[i]);
+    }
+    free(sb.data);
+    return hit;
 }
 
 static bool sokari_says_goodbye(const char *reply)

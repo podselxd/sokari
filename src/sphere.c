@@ -29,6 +29,10 @@
 /* Las líneas al hablar llegan a 1.6 veces su radio (medido): con un lienzo
    1.32 veces más grande tampoco se cortan. */
 #define LINES_ROOM 1.32f
+/* Con cara se mueve, se infla, se aplasta y se estira: más lienzo, y hasta
+   dónde llega lo que se ve de la esfera (en radios, con su ondulación). */
+#define FACE_ROOM 1.3f
+#define FACE_REACH 1.4f
 
 const SphereParams SPHERE_IDLE = {{0x45, 0x50, 0xe6}, {0xff, 0x2b, 0xd1}, 0.15f, 0.24f, 8.0f};
 const SphereParams SPHERE_SPEAK = {{0x5b, 0x3d, 0xf0}, {0xff, 0x47, 0xe0}, 0.32f, 0.40f, 11.0f};
@@ -387,7 +391,8 @@ static void build_dots(SphereRenderer *r)
 
 float sphere_room(SphereStyle style)
 {
-    return style == SPHERE_STYLE_LINES ? LINES_ROOM : 1.0f;
+    if (style == SPHERE_STYLE_LINES) return LINES_ROOM;
+    return sphere_style_is_face(style) ? FACE_ROOM : 1.0f;
 }
 
 SphereRenderer *sphere_create(int size)
@@ -744,6 +749,27 @@ void sphere_render(SphereRenderer *r, double t, double angle, double voice_t, co
         face_cy = f.cy + fdy * f.R + anchor;
         f.cx += sdx * f.R;
         f.cy += sdy * f.R + anchor;
+        /* Que nunca se salga del lienzo: lo que ocupa (estirada, con su
+           ondulación y su resplandor) más hasta dónde la lleva el gesto no
+           pasa del borde. Cerca del borde el movimiento se va frenando (el
+           salto se nota igual, sin cortarse); si ni quieta cabe, se achica. */
+        const float glow_pad = 2.5f * (p->glow + 4.0f * voice + 3.0f * pulse) * s;
+        const float lim = size * 0.5f - 2.0f;
+        float ex = f.R * f.qx * FACE_REACH + glow_pad, ey = f.R * f.qy * FACE_REACH + glow_pad;
+        const float big = fmaxf(ex, ey);
+        if (big > lim) {
+            const float k = (lim - glow_pad) / (big - glow_pad);
+            f.R *= k;
+            ex = (ex - glow_pad) * k + glow_pad;
+            ey = (ey - glow_pad) * k + glow_pad;
+        }
+        const float c0 = size * 0.5f, mx = fmaxf(lim - ex, 0.0f), my = fmaxf(lim - ey, 0.0f);
+        const float nx = mx > 0 ? c0 + mx * tanhf((f.cx - c0) / mx) : c0;
+        const float ny = my > 0 ? c0 + my * tanhf((f.cy - c0) / my) : c0;
+        face_cx += nx - f.cx;
+        face_cy += ny - f.cy;
+        f.cx = nx;
+        f.cy = ny;
     }
     if (moving && r->anim == SPHERE_ANIM_ZOOM) {
         /* Radio y perspectiva juntos: la misma esfera, más chica. */

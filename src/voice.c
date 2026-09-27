@@ -395,6 +395,7 @@ static int16_t *record_command(const int16_t *seed, int nseed, size_t *out_n)
 {
     Recording rec;
     rec_begin(&rec, end_silence_frames((EndSilence)config_end_silence()));
+    rec_set_background(&rec, listener_background(g_listener));
     rec_seed(&rec, seed, nseed);
     DuckState duck = {-1, -1};
     if (!g_sim_mode && config_duck()) duck = system_duck(0.3f);
@@ -807,6 +808,7 @@ static DWORD WINAPI voice_main(LPVOID arg)
         } else {
             last_data = GetTickCount64();
             listener_feed(g_listener, f, (float)g_silence); /* aprende el ruido de tu cuarto */
+            listener_learn(g_listener, f);                  /* y lo que suena de fondo (la tele) */
             if (nhist == WAKE_HISTORY_FRAMES) {
                 memmove(hist[0], hist[1], sizeof hist[0] * (WAKE_HISTORY_FRAMES - 1));
                 nhist--;

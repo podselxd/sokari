@@ -22,7 +22,7 @@ static const char *DISPLAY_KEYS[DISPLAY_MODE_COUNT] = {"fullscreen", "fullscreen
 static const char *const APPEAR_KEYS[] = {"materializar", "deslizar", "zoom", "ninguna"};
 /* La versión de config.env: sube cuando algo guardado antes hay que
    acomodarlo al cargarlo (ver load_env_file). */
-#define CONFIG_VERSION 2
+#define CONFIG_VERSION 3
 
 static const char *const STYLE_KEYS[] = {"puntos", "lineas", "cara_ojos", "cara_boca", "cara_puntos"};
 #define STYLE_COUNT (int)(sizeof STYLE_KEYS / sizeof *STYLE_KEYS)
@@ -109,11 +109,7 @@ static void defaults(AppConfig *c)
     c->ai_order = xstrdup(DEFAULT_AI_ORDER);
     c->skills_off = xstrdup("");
     c->city = xstrdup("");
-#ifdef _WIN32
-    c->display_mode = DISPLAY_FULLSCREEN;
-#else
-    c->display_mode = DISPLAY_WINDOWED_BORDERLESS; /* en Linux, la esfera flotante */
-#endif
+    c->display_mode = DISPLAY_WINDOWED_BORDERLESS; /* la esfera flotante */
     c->resolution = 0;
     c->volume = 100;
     c->wake_sensitivity = 67;
@@ -217,7 +213,14 @@ static bool load_env_file(const wchar_t *path, AppConfig *c)
        no lo eligió nadie. Pasa a la de fábrica, la esfera flotante. */
     if (version < 2) c->display_mode = DISPLAY_WINDOWED_BORDERLESS;
 #else
-    (void)version;
+    /* Hasta la 2.7.2 en Windows la de fábrica era Pantalla completa y la voz
+       Raúl: no se sabe si alguien las eligió o venían así. Pasan una vez a
+       las de ahora (la esfera flotante y Sabina); si después eliges otras, ya
+       se guardan con la versión nueva y se respetan. */
+    if (version < 3) {
+        if (c->display_mode == DISPLAY_FULLSCREEN) c->display_mode = DISPLAY_WINDOWED_BORDERLESS;
+        if (str_contains_ci(c->voice, "Raul")) set_str(&c->voice, "");
+    }
 #endif
     return true;
 }

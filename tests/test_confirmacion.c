@@ -316,6 +316,30 @@ static void test_despedidas(void)
     check(!t.keep_going && t.reply && !strcmp(t.reply, "Hasta luego.") && g_script_pos == 1,
           "terminar_conversacion termina sin otra vuelta al modelo");
     free(t.reply);
+    /* Despedidas de todos los días: terminan sin preguntarle al modelo. */
+    const char *bye[] = {"hasta mañana Sokari", "me voy a dormir",         "bueno, luego hablamos",
+                         "hablamos luego",      "ok, nos hablamos",        "es todo por hoy, gracias",
+                         "ya estuvo por hoy",   "ok, nada más, gracias",   "buenas noches Sokari",
+                         "no, ya está, gracias"};
+    bool all_bye = true;
+    for (size_t i = 0; i < sizeof bye / sizeof *bye; i++) {
+        script("(no se debe usar)", NULL, NULL);
+        t = say_turn(c, bye[i]);
+        if (t.keep_going || g_script_pos != 0) printf("      no terminó: %s\n", bye[i]), all_bye = false;
+        free(t.reply);
+    }
+    check(all_bye, "«hasta mañana», «me voy a dormir», «luego hablamos», «es todo por hoy»… terminan");
+    /* Pero si la despedida no es lo último, es parte de un pedido. */
+    const char *not_bye[] = {"nada más abre Spotify", "nada más abre la calculadora", "ya está abierta la calculadora, ciérrala",
+                             "¿va a llover de hoy hasta mañana?", "buenas noches, ¿qué clima hace mañana?"};
+    bool none_bye = true;
+    for (size_t i = 0; i < sizeof not_bye / sizeof *not_bye; i++) {
+        script("¿Algo más?", "¿Algo más?", NULL);
+        t = say_turn(c, not_bye[i]);
+        if (!t.keep_going) printf("      terminó: %s\n", not_bye[i]), none_bye = false;
+        free(t.reply);
+    }
+    check(none_bye, "«nada más abre la calculadora» o «de hoy hasta mañana» no son despedidas");
     conv_destroy(c);
 }
 

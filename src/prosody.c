@@ -17,7 +17,7 @@
    pesos). Cambios chicos: más, y suena a caricatura. */
 static const Prosody STYLE[AFF_COUNT] = {
     [AFF_NEUTRAL] = {1.0f, 0, 0, 0, 0},
-    [AFF_JOY] = {1.10f, 1.8f, 1.0f, 0, -60},       /* más rápida y aguda, pausas cortas */
+    [AFF_JOY] = {1.10f, 0.8f, 1.0f, 0, -60},       /* más rápida, apenas más aguda (sin chillar), pausas cortas */
     [AFF_FEAR] = {1.10f, 1.2f, -0.5f, 1.0f, -50},  /* rápida, un poco aguda y temblorosa */
     [AFF_ANGER] = {1.05f, -0.6f, 2.5f, 0, -30},    /* firme y más fuerte */
     [AFF_DISGUST] = {0.94f, -1.0f, -1.0f, 0, 100}, /* un poco lenta y grave */

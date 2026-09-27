@@ -134,8 +134,8 @@ static void test_config(const wchar_t *dir)
     write_config("");
     config_load();
     AppConfig c = config_snapshot();
-    check(c.display_mode == DISPLAY_FULLSCREEN && !*c.output_name && c.win_w == -1,
-          "valores por defecto: pantalla completa (con bordes), salida predeterminada, ventana sin tamaño");
+    check(c.display_mode == DISPLAY_WINDOWED_BORDERLESS && !*c.output_name && c.win_w == -1,
+          "valores por defecto: la esfera flotante, salida predeterminada, ventana sin tamaño");
     check(c.full_access, "y acceso completo prendido");
     check(!c.mexa, "y contesta neutro (el modo mexa viene apagado)");
     check(c.end_silence == 1 && c.duck, "y espera 0.8 s cuando te callas, bajando el volumen mientras escucha");
@@ -190,6 +190,21 @@ static void test_config(const wchar_t *dir)
     check(c.display_mode == DISPLAY_MINIMIZED, "un modo fuera de rango no se guarda");
     config_free(&c);
 
+    /* De la 2.7.2 o antes: Pantalla completa y Raúl eran las de fábrica. */
+    write_config("SOKARI_DISPLAY_MODE=fullscreen\nSOKARI_VOICE=HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech_OneCore\\"
+                 "Voices\\Tokens\\MSTTS_V110_esMX_RaulM\nSOKARI_CONFIG_VERSION=2\n");
+    config_load();
+    c = config_snapshot();
+    check(c.display_mode == DISPLAY_WINDOWED_BORDERLESS && !*c.voice,
+          "de la 2.7.2: Pantalla completa y Raúl pasan una vez a la esfera flotante y a la voz de fábrica (Sabina)");
+    config_free(&c);
+    write_config("SOKARI_DISPLAY_MODE=fullscreen\nSOKARI_VOICE=MSTTS_V110_esMX_RaulM\nSOKARI_CONFIG_VERSION=3\n");
+    config_load();
+    c = config_snapshot();
+    check(c.display_mode == DISPLAY_FULLSCREEN && str_contains_ci(c.voice, "Raul"),
+          "ya en la versión nueva, si eliges Pantalla completa o Raúl se respetan");
+    config_free(&c);
+
     write_config("SOKARI_DISPLAY_MODE=windowed_borderless\nSOKARI_WINDOW=10,20\nSOKARI_OUTPUT=\n");
     config_load();
     c = config_snapshot();
@@ -200,7 +215,7 @@ static void test_config(const wchar_t *dir)
     write_config("SOKARI_DISPLAY_MODE=inventado\nSOKARI_WINDOW=0,0,0,500\n");
     config_load();
     c = config_snapshot();
-    check(c.display_mode == DISPLAY_FULLSCREEN, "un modo desconocido deja el de por defecto");
+    check(c.display_mode == DISPLAY_WINDOWED_BORDERLESS, "un modo desconocido deja el de por defecto");
     check(c.win_w == -1, "un tamaño de ventana en cero se ignora");
     config_free(&c);
 

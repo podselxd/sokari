@@ -250,8 +250,8 @@ static void test_prosody(void)
     snprintf(what2, sizeof what2, "furia (que en la mezcla trae algo de temor): fuerte (%+.1f dB) y casi sin temblar (%.2f)",
              angry.gain_db, angry.tremble);
     check(angry.gain_db > 1.5f && angry.tremble < 0.2f, what2);
-    check(e[AFF_JOY].tempo > 1.05f && e[AFF_JOY].pitch > 1 && e[AFF_JOY].pause_ms < 0,
-          "alegría: más rápida, más aguda y con pausas cortas");
+    check(e[AFF_JOY].tempo > 1.05f && e[AFF_JOY].pitch > 0.3f && e[AFF_JOY].pitch < 1.2f && e[AFF_JOY].pause_ms < 0,
+          "alegría: más rápida, apenas más aguda (sin chillar) y con pausas cortas");
     check(e[AFF_SADNESS].tempo < 0.9f && e[AFF_SADNESS].pitch < -1 && e[AFF_SADNESS].gain_db < -2 &&
               e[AFF_SADNESS].pause_ms > 150,
           "tristeza: lenta, grave, bajita y con pausas largas");
