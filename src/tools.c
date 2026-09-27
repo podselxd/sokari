@@ -18,6 +18,7 @@ static const ToolEntry TOOLS[] = {
     {"control_media", tool_control_media},
     {"control_desktop", tool_control_desktop},
     {"create_macro", tool_create_macro},
+    {"crear_skill", tool_crear_skill},
     {"run_macro", tool_run_macro},
     {"guardar_dato", tool_guardar_dato},
     {"recordar", tool_recordar},

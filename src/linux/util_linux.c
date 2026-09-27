@@ -4,11 +4,13 @@
    usuario (0600 y carpetas 0700): ahí están tus keys y tu memoria. */
 #include <windows.h>
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/random.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -199,6 +201,36 @@ long long file_size(const wchar_t *path)
 {
     struct stat st;
     return stat_w(path, &st) ? -1 : (long long)st.st_size;
+}
+
+static int cmp_names(const void *a, const void *b)
+{
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+char **dir_list(const wchar_t *dir, const char *suffix, int *n)
+{
+    *n = 0;
+    char *p = wide_to_utf8(dir);
+    DIR *d = opendir(p);
+    char **out = NULL;
+    size_t sl = strlen(suffix);
+    struct dirent *e;
+    while (d && (e = readdir(d)) && *n < 500) {
+        size_t nl = strlen(e->d_name);
+        if (nl <= sl || strcasecmp(e->d_name + nl - sl, suffix)) continue;
+        char *full = str_printf("%s/%s", p, e->d_name);
+        struct stat st;
+        bool regular = !lstat(full, &st) && S_ISREG(st.st_mode);
+        free(full);
+        if (!regular) continue;
+        out = xrealloc(out, sizeof *out * (size_t)(*n + 1));
+        out[(*n)++] = xstrdup(e->d_name);
+    }
+    if (d) closedir(d);
+    free(p);
+    if (*n) qsort(out, (size_t)*n, sizeof *out, cmp_names);
+    return out;
 }
 
 bool ensure_dir(const wchar_t *path)

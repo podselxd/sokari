@@ -185,6 +185,61 @@
   {
     "type": "function",
     "function": {
+      "name": "crear_skill",
+      "description": "Crea una skill del usuario. 'rutina': al decir sus frases hace pasos sin IA (accion: abre, musica, volumen, youtube, escribe, minimiza, di, espera). 'ia': al decir sus frases, sus instrucciones te llegan en ese pedido.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "rutina",
+              "ia"
+            ]
+          },
+          "frases": {
+            "type": "string",
+            "description": "Frases que la activan, separadas por |"
+          },
+          "cuando": {
+            "type": "string"
+          },
+          "pasos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accion": {
+                  "type": "string"
+                },
+                "valor": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accion",
+                "valor"
+              ]
+            }
+          },
+          "instrucciones": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "tipo",
+          "frases"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "guardar_dato",
       "description": "Guarda o corrige un dato del usuario con una clave corta (ej. 'cumpleaños').",
       "parameters": {

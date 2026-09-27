@@ -99,6 +99,8 @@ bool clipboard_set_file(const wchar_t *path);
 
 /* calculadora y malla */
 char *tool_calcular(const cJSON *a);
+/* skills_user.c: crea una rutina o una skill de IA tuya. */
+char *tool_crear_skill(const cJSON *a);
 /* La misma calculadora sin herramienta: "25*4" -> 100. false si no se puede. */
 bool calc_evaluate(const char *expression, double *out);
 /* 100 -> "100", 2.5 -> "2.5" (heap). */

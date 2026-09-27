@@ -315,6 +315,51 @@ typedef struct {
     bool first_run;
 } SettingsForm;
 
+/* Abre una carpeta o un archivo con la app de tu escritorio. */
+static void open_path(const wchar_t *path)
+{
+    char *p = wide_to_utf8(path);
+    GFile *f = g_file_new_for_path(p);
+    char *uri = g_file_get_uri(f);
+    GError *err = NULL;
+    if (!g_app_info_launch_default_for_uri(uri, NULL, &err)) {
+        log_msg("No pude abrir %s: %s", p, err ? err->message : "?");
+        g_clear_error(&err);
+    }
+    g_free(uri);
+    g_object_unref(f);
+    free(p);
+}
+
+static char *skills_text(void)
+{
+    int n;
+    char *names = skills_user_summary(&n);
+    char *t = n ? str_printf("Tus skills (%d): %s. Cada una es un archivo de texto en la carpeta de skills.", n, names)
+                : xstrdup("Todavía no tienes skills tuyas. Crea una con «Nueva skill» o diciéndole «crea una rutina "
+                          "que abra Spotify cuando diga modo estudio».");
+    free(names);
+    return t;
+}
+
+static void on_open_skills(GtkButton *b, gpointer label)
+{
+    wchar_t *dir = skills_user_dir();
+    ensure_dir(dir);
+    open_path(dir);
+    free(dir);
+}
+
+static void on_new_skill(GtkButton *b, gpointer label)
+{
+    wchar_t *path = skills_new_template();
+    if (path) open_path(path);
+    free(path);
+    char *t = skills_text();
+    gtk_label_set_text(GTK_LABEL(label), t);
+    free(t);
+}
+
 static GtkWidget *add_row(GtkGrid *g, int row, const char *label, GtkWidget *w)
 {
     GtkWidget *l = gtk_label_new(label);
@@ -483,6 +528,21 @@ static void settings_open(bool first_run)
     f->city = add_row(GTK_GRID(grid), r++, "Tu ciudad (para el clima)", gtk_entry_new());
     gtk_entry_set_text(GTK_ENTRY(f->city), cfg.city);
     gtk_entry_set_placeholder_text(GTK_ENTRY(f->city), "Chihuahua");
+    char *st = skills_text();
+    GtkWidget *mine = gtk_label_new(st);
+    free(st);
+    gtk_label_set_line_wrap(GTK_LABEL(mine), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(mine), 0);
+    gtk_label_set_max_width_chars(GTK_LABEL(mine), 60);
+    gtk_grid_attach(GTK_GRID(grid), mine, 0, r++, 2, 1);
+    GtkWidget *bbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *open = gtk_button_new_with_label("Abrir carpeta de skills");
+    GtkWidget *add = gtk_button_new_with_label("Nueva skill");
+    g_signal_connect(open, "clicked", G_CALLBACK(on_open_skills), mine);
+    g_signal_connect(add, "clicked", G_CALLBACK(on_new_skill), mine);
+    gtk_box_pack_start(GTK_BOX(bbox), open, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bbox), add, FALSE, FALSE, 0);
+    gtk_grid_attach(GTK_GRID(grid), bbox, 0, r++, 2, 1);
     SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
     config_free(&cfg);
     g_signal_connect(d, "response", G_CALLBACK(on_settings_response), f);

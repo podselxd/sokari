@@ -69,7 +69,7 @@ enum {
     A_NONE, A_GROQ_LINK, A_RESET_PW, A_SHOW_API, A_SHOW_STOP, A_TAILSCALE, A_COPY_SECRET, A_OBSIDIAN, A_PICK_SOUND,
     A_CLEAR_SOUND, A_OPEN_FOLDER, A_CHECK_UPDATE, A_SAVE, A_CANCEL, A_START, A_GO_SETTINGS, A_MUTE, A_TEST_AUDIO,
     A_QUIT, A_MODE_CHANGED, A_OUTPUT_CHANGED, A_TEST_VOICE, A_FIREWALL, A_DETECT, A_DIAGNOSE, A_FULL_ACCESS,
-    A_SHOW_MESH,
+    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL,
     /* Por dispositivo de la lista: + su número. */
     A_DEV_PROBE = 200, A_DEV_REMOVE = 300,
     /* Por IA de respaldo (0 NVIDIA, 1 DeepSeek, 2 OpenRouter, 3 GLM): ver la key y dónde sacarla. */
@@ -411,6 +411,7 @@ static const char *output_name_at(int index)
 
 static wchar_t g_tailscale_text[320];
 static wchar_t g_sound_text[160];
+static wchar_t g_skills_text[600]; /* la sección Skills: cuáles tuyas hay */
 static wchar_t g_home_title[96];
 static wchar_t g_home_text[200];
 
@@ -571,17 +572,22 @@ static void layout(void)
                         L"de 10 minutos», «¿va a llover?», «anota comprar leche». Lo que no entienden se lo pasan a la "
                         L"IA. Apaga las que no quieras.") +
             dp(6);
-        static const wchar_t *const LABELS[] = {L"Hora y fecha",          L"Temporizadores y cronómetro",
-                                                L"Alarmas y recordatorios", L"Cuentas y conversiones",
-                                                L"El clima",              L"Notas y pendientes",
-                                                L"Cómo va la PC",         L"Saludos, plática y chistes"};
-        int n = skills_count() < 8 ? skills_count() : 8, half = (n + 1) / 2, col = (w - dp(16)) / 2;
+        static const wchar_t *const LABELS[] = {L"Tus rutinas y skills",   L"Hora y fecha",
+                                                L"Temporizadores y cronómetro", L"Alarmas y recordatorios",
+                                                L"Cuentas y conversiones", L"El clima",
+                                                L"Notas y pendientes",     L"Cómo va la PC",
+                                                L"Saludos, plática y chistes"};
+        int n = skills_count() < 9 ? skills_count() : 9, half = (n + 1) / 2, col = (w - dp(16)) / 2;
         for (int i = 0; i < n; i++)
             layout_toggle(x + (i / half) * (col + dp(16)), y + (i % half) * dp(42), col, &S.skill_on[i], LABELS[i]);
         y += half * dp(42) + dp(6);
         y = layout_edit(x, y, w, L"Tu ciudad (para el clima)", F_CITY, NULL) - dp(8);
         y = layout_help(x, y, w, L"También se la puedes decir: «mi ciudad es Chihuahua». El clima sale de Open-Meteo, "
-                                 L"gratis y sin key.");
+                                 L"gratis y sin key.") + dp(8);
+        y = layout_help(x, y, w, g_skills_text) + dp(2);
+        layout_button(x, y, dp(220), L"Abrir carpeta de skills", A_OPEN_SKILLS, false);
+        layout_button(x + dp(232), y, dp(160), L"Nueva skill", A_NEW_SKILL, false);
+        y += dp(50);
         break;
     }
     case SEC_AI: {
@@ -879,6 +885,24 @@ static void refresh_sound_text(void)
     wcscpy(g_sound_text, custom ? L"Usando tu sonido personalizado." : L"Usando el tono de Sokari.");
 }
 
+/* "Tus skills (2): modo estudio, noticias." para la sección Skills. */
+static void refresh_skills_text(void)
+{
+    int n;
+    char *names = skills_user_summary(&n);
+    char *t = n ? str_printf("Tus skills (%d): %s. Cada una es un archivo de texto en la carpeta de skills; también se "
+                             "crean diciéndole «crea una rutina…».",
+                             n, names)
+                : xstrdup("Todavía no tienes skills tuyas. Crea una con «Nueva skill» (un archivo de texto de ejemplo) "
+                          "o diciéndole «crea una rutina que abra Spotify cuando diga modo estudio».");
+    wchar_t *w = utf8_to_wide(t);
+    wcsncpy(g_skills_text, w, sizeof g_skills_text / sizeof *g_skills_text - 1);
+    g_skills_text[sizeof g_skills_text / sizeof *g_skills_text - 1] = 0;
+    free(w);
+    free(t);
+    free(names);
+}
+
 static void load_values(void)
 {
     config_free(&S.cfg);
@@ -919,6 +943,7 @@ static void load_values(void)
     SetWindowTextW(S.edits[F_CITY], w);
     free(w);
     for (int i = 0; i < skills_count() && i < 16; i++) S.skill_on[i] = config_skill_enabled(skills_get(i)->id);
+    refresh_skills_text();
     S.volume = S.cfg.volume;
     S.sensitivity = S.cfg.wake_sensitivity;
     S.autostart = autostart_is_enabled();
@@ -1365,6 +1390,22 @@ static void do_action(int action)
     case A_OPEN_FOLDER:
         ShellExecuteW(NULL, L"open", g_paths.local_dir, NULL, NULL, SW_SHOWNORMAL);
         break;
+    case A_OPEN_SKILLS: {
+        wchar_t *dir = skills_user_dir();
+        ensure_dir(dir);
+        ShellExecuteW(NULL, L"open", dir, NULL, NULL, SW_SHOWNORMAL);
+        free(dir);
+        break;
+    }
+    case A_NEW_SKILL: {
+        wchar_t *path = skills_new_template();
+        if (path) ShellExecuteW(NULL, L"open", L"notepad.exe", path, NULL, SW_SHOWNORMAL);
+        else set_status(L"No pude crear la skill nueva.");
+        free(path);
+        refresh_skills_text();
+        layout();
+        break;
+    }
     case A_CHECK_UPDATE:
         run_async(A_CHECK_UPDATE, L"Buscando actualizaciones…");
         break;

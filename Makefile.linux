@@ -15,7 +15,7 @@ LIBS := $(shell pkg-config --libs $(PKGS)) -lm -lpthread
 # de Linux está en src/linux/ (y src/linux/include/windows.h da los hilos y
 # candados con la misma forma que en Windows).
 SHARED := agent audio_common calc config groq http_common intents keys log memory mesh mesh_devices sounds_common sphere \
-          skills skills_calc skills_notes skills_timers skills_weather \
+          skills skills_calc skills_notes skills_timers skills_user skills_weather \
           tool_policy tools tools_common tools_memory tools_web tts_common util vad voice wakeword nn_generic nn_avx2
 # Detector de voz de WebRTC (C puro, licencia BSD): ver src/third_party/webrtc_vad.
 VAD_SRC := $(wildcard src/third_party/webrtc_vad/webrtc/common_audio/vad/*.c) \

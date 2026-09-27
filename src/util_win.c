@@ -154,6 +154,37 @@ bool ensure_dir(const wchar_t *path)
     return r == ERROR_SUCCESS || r == ERROR_ALREADY_EXISTS || r == ERROR_FILE_EXISTS;
 }
 
+static int cmp_names(const void *a, const void *b)
+{
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+char **dir_list(const wchar_t *dir, const char *suffix, int *n)
+{
+    *n = 0;
+    wchar_t *pattern = path_join(dir, L"*");
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(pattern, &fd);
+    free(pattern);
+    if (h == INVALID_HANDLE_VALUE) return NULL;
+    char **out = NULL;
+    size_t sl = strlen(suffix);
+    do {
+        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) continue;
+        char *name = wide_to_utf8(fd.cFileName);
+        size_t nl = strlen(name);
+        if (nl > sl && !_stricmp(name + nl - sl, suffix) && *n < 500) {
+            out = xrealloc(out, sizeof *out * (size_t)(*n + 1));
+            out[(*n)++] = name;
+        } else {
+            free(name);
+        }
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    if (*n) qsort(out, (size_t)*n, sizeof *out, cmp_names);
+    return out;
+}
+
 wchar_t *path_join(const wchar_t *a, const wchar_t *b)
 {
     size_t na = wcslen(a), nb = wcslen(b);

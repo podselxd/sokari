@@ -20,6 +20,7 @@
 #include "log.h"
 #include "memory.h"
 #include "skills.h"
+#include "tools.h"
 #include "util.h"
 
 static int g_fail, g_total;
@@ -308,6 +309,103 @@ static void test_chat(void)
     goes_to_ai("Escribe un poema sobre el mar");
 }
 
+static void write_text(const wchar_t *dir, const wchar_t *name, const char *text)
+{
+    wchar_t *path = path_join(dir, name);
+    write_file_atomic(path, text, strlen(text));
+    free(path);
+}
+
+static void test_mine(void)
+{
+    printf("-- tus skills --\n");
+    wchar_t *dir = skills_user_dir();
+    ensure_dir(dir);
+    write_text(dir, L"Modo estudio.md",
+               "# Modo estudio\nTipo: rutina\nFrases: modo estudio | vamos a estudiar\n\n- espera: 0\n"
+               "- di: Listo, a estudiar.\n");
+    write_text(dir, L"Rara.md", "# Rara\nFrases: haz algo raro\n- vuela: alto\n");
+    write_text(dir, L"Noticias.md",
+               "# Noticias\nTipo: IA\nFrases: resumen de noticias | noticias del día\nCuándo: cuando pida las noticias\n\n"
+               "Dame 5 noticias de hoy, una frase cada una.\n");
+    write_text(dir, L"Vacía.md", "");
+    says("Modo estudio", "Listo, a estudiar.");
+    says("Oye, activa el modo estudio porfa", "Listo, a estudiar.");
+    says("Vamos a estudiar", "Listo, a estudiar.");
+    goes_to_ai("Modo estudio para el examen de mañana en la escuela");
+    says_part("Haz algo raro", "no sé hacer «vuela»");
+
+    char *name = NULL, *ai = skills_ai_for("Dame un resumen de noticias de hoy, porfa", &name);
+    check(ai && strstr(ai, "Dame 5 noticias") && name && !strcmp(name, "Noticias"),
+          "skill de IA: «dame un resumen de noticias» manda sus instrucciones al modelo");
+    free(ai);
+    free(name);
+    ai = skills_ai_for("Quiero las noticias del día", &name);
+    check(ai != NULL, "skill de IA: con sus palabras en otro orden también («las noticias del día»)");
+    free(ai);
+    free(name);
+    ai = skills_ai_for("¿Qué es la fotosíntesis?", &name);
+    check(!ai, "skill de IA: lo que no es de ella, nada");
+    free(ai);
+    free(name);
+
+    /* Crearla por voz (la herramienta que usa la IA) y que tu rutina le gane al saludo. */
+    cJSON *args = cJSON_Parse("{\"nombre\":\"Buenos días\",\"tipo\":\"rutina\",\"frases\":\"buenos días | buen día\","
+                              "\"pasos\":[{\"accion\":\"di\",\"valor\":\"¡Buen día, jefe! Hoy toca estudiar.\"}]}");
+    char *r = tool_crear_skill(args);
+    cJSON_Delete(args);
+    check(r && !strcmp(r, "Listo, creé la rutina «Buenos días». Se activa diciendo «buenos días»."),
+          "«crea una rutina…»: la guarda y dice cómo se activa");
+    if (r && strcmp(r, "Listo, creé la rutina «Buenos días». Se activa diciendo «buenos días».")) printf("      dijo: %s\n", r);
+    free(r);
+    says("Buenos días", "¡Buen día, jefe! Hoy toca estudiar.");
+    args = cJSON_Parse("{\"nombre\":\"Nada\",\"tipo\":\"rutina\",\"frases\":\"nada que hacer\",\"pasos\":[]}");
+    r = tool_crear_skill(args);
+    cJSON_Delete(args);
+    check(r && strstr(r, "No guardé"), "una rutina sin pasos no se guarda");
+    free(r);
+
+    int n;
+    char *names = skills_user_summary(&n);
+    check(n == 4 && strstr(names, "Modo estudio") && strstr(names, "Noticias"),
+          "Configuración ve tus 4 skills (la vacía se salta)");
+    free(names);
+
+    /* Apagadas: ni rutinas ni skills de IA. */
+    AppConfig c = config_snapshot();
+    free(c.skills_off);
+    c.skills_off = xstrdup("mis_skills");
+    config_apply(&c);
+    config_free(&c);
+    goes_to_ai("Modo estudio");
+    ai = skills_ai_for("Dame un resumen de noticias", &name);
+    check(!ai, "con tus skills apagadas, la de IA tampoco");
+    free(ai);
+    free(name);
+    c = config_snapshot();
+    free(c.skills_off);
+    c.skills_off = xstrdup("");
+    config_apply(&c);
+    config_free(&c);
+
+    wchar_t *tpl = skills_new_template();
+    check(tpl && file_exists(tpl), "«Nueva skill» crea un archivo de ejemplo para editar");
+    free(tpl);
+
+    int nf;
+    char **files = dir_list(dir, ".md", &nf);
+    for (int i = 0; i < nf; i++) {
+        wchar_t *w = utf8_to_wide(files[i]), *path = path_join(dir, w);
+        DeleteFileW(path);
+        free(path);
+        free(w);
+        free(files[i]);
+    }
+    free(files);
+    RemoveDirectoryW(dir);
+    free(dir);
+}
+
 static void test_off(void)
 {
     printf("-- una skill apagada --\n");
@@ -362,6 +460,7 @@ int wmain(void)
     test_notes();
     test_pc();
     test_chat();
+    test_mine();
     test_off();
 
     for (size_t i = 0; i < sizeof files / sizeof *files; i++) {
