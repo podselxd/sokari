@@ -411,29 +411,44 @@ static void test_limites(void)
     face_destroy(f);
 }
 
+static AppConfig load_text(const char *text)
+{
+    write_file_atomic(g_paths.config_file, text, strlen(text));
+    config_load();
+    return config_snapshot();
+}
+
 static void test_config(const wchar_t *dir)
 {
     printf("-- en config.env --\n");
-    const char *text = "SOKARI_SPHERE_STYLE=cara_ojos\nSOKARI_FACE_LEVEL=mucho\nSOKARI_FACE_SYMBOLS=0\n";
-    write_file_atomic(g_paths.config_file, text, strlen(text));
-    config_load();
-    AppConfig c = config_snapshot();
-    check(c.sphere_style == SPHERE_STYLE_FACE_EYES && c.face_level == 2 && !c.face_symbols,
-          "lee la cara, «mucho» y sin símbolos");
-    c.face_level = 0;
+    AppConfig c = load_text("SOKARI_SPHERE_STYLE=cara_boca\nSOKARI_FACE_LEVEL=poco\nSOKARI_FACE_SYMBOLS=0\n");
+    check(c.sphere_style == SPHERE_STYLE_FACE_MOUTH && !c.face_symbols,
+          "lee la cara y sin símbolos (el «qué tanto se le nota» de antes se ignora: siempre «mucho»)");
     c.face_symbols = true;
     config_apply(&c);
     config_free(&c);
     char *saved = read_file_all(g_paths.config_file, NULL);
-    check(saved && strstr(saved, "SOKARI_FACE_LEVEL=poco\n") && strstr(saved, "SOKARI_FACE_SYMBOLS=1\n") &&
-              strstr(saved, "SOKARI_SPHERE_STYLE=cara_ojos\n"),
-          "y lo guarda igual");
+    check(saved && strstr(saved, "SOKARI_FACE_SYMBOLS=1\n") && strstr(saved, "SOKARI_SPHERE_STYLE=cara_boca\n") &&
+              !strstr(saved, "SOKARI_FACE_LEVEL"),
+          "y lo guarda igual, ya sin el nivel");
     free(saved);
+    c = load_text("GROQ_API_KEY=gsk_x\nSOKARI_SPHERE_STYLE=puntos\n");
+    check(c.sphere_style == SPHERE_STYLE_FACE_EYES,
+          "una configuración de antes de la cara (con el halo, que era lo único) pasa a «solo ojos»");
+    c.sphere_style = SPHERE_STYLE_DOTS;
+    config_apply(&c);
+    config_free(&c);
+    config_load();
+    c = config_snapshot();
+    check(c.sphere_style == SPHERE_STYLE_DOTS, "y si después eliges el halo, se respeta");
+    config_free(&c);
+    c = load_text("SOKARI_SPHERE_STYLE=lineas\n");
+    check(c.sphere_style == SPHERE_STYLE_LINES, "las líneas de antes se quedan (esas sí las eligió alguien)");
+    config_free(&c);
     DeleteFileW(g_paths.config_file);
     config_load();
     c = config_snapshot();
-    check(c.sphere_style == SPHERE_STYLE_DOTS && c.face_level == 1 && c.face_symbols,
-          "de fábrica: el halo de puntos; con cara, «normal» y con símbolos");
+    check(c.sphere_style == SPHERE_STYLE_FACE_EYES && c.face_symbols, "de fábrica: la cara «solo ojos», con símbolos");
     config_free(&c);
     (void)dir;
 }

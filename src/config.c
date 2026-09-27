@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "log.h"
+#include "sphere.h"
 #include "util.h"
 
 AppPaths g_paths;
@@ -108,9 +109,8 @@ static void defaults(AppConfig *c)
     c->resolution = 0;
     c->volume = 100;
     c->wake_sensitivity = 67;
-    c->sphere_style = 0;
+    c->sphere_style = SPHERE_STYLE_FACE_EYES;
     c->appear_anim = 0;
-    c->face_level = 1;
     c->face_symbols = true;
     c->orb_x = c->orb_y = -1;
     c->win_x = c->win_y = c->win_w = c->win_h = -1;
@@ -161,8 +161,6 @@ static void apply_kv(AppConfig *c, const char *key, const char *value)
         c->sphere_style = sphere_style_from_key(value);
     } else if (!strcmp(key, "SOKARI_ANIMATION")) {
         c->appear_anim = appear_anim_from_key(value);
-    } else if (!strcmp(key, "SOKARI_FACE_LEVEL")) {
-        c->face_level = !strcmp(value, "poco") ? 0 : !strcmp(value, "mucho") ? 2 : 1;
     } else if (!strcmp(key, "SOKARI_FACE_SYMBOLS")) {
         c->face_symbols = parse_bool(value);
     } else if (!strcmp(key, "SOKARI_ORB_POS")) {
@@ -185,6 +183,7 @@ static bool load_env_file(const wchar_t *path, AppConfig *c)
     char *text = read_file_all(path, &len);
     if (!text) return false;
     char *save = NULL;
+    bool face_keys = false;
     for (char *line = strtok_r(text, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
         char *t = str_trim(line);
         char *eq = strchr(t, '=');
@@ -192,12 +191,17 @@ static bool load_env_file(const wchar_t *path, AppConfig *c)
             *eq = 0;
             char *k = str_trim(t), *v = str_trim(eq + 1);
             apply_kv(c, k, v);
+            if (str_starts_with(k, "SOKARI_FACE_")) face_keys = true;
             free(k);
             free(v);
         }
         free(t);
     }
     free(text);
+    /* Guardada antes de que existiera la cara (no trae nada de ella): el halo
+       no lo eligió nadie, era lo único. Pasa a la de fábrica, solo ojos; si
+       después eliges el halo, ya se guarda con lo de la cara y se respeta. */
+    if (!face_keys && c->sphere_style == SPHERE_STYLE_DOTS) c->sphere_style = SPHERE_STYLE_FACE_EYES;
     return true;
 }
 
@@ -244,7 +248,6 @@ static bool save_locked(void)
     sb_appendf(&sb, "SOKARI_WAKE_SENSITIVITY=%d\n", g_cfg.wake_sensitivity);
     sb_appendf(&sb, "SOKARI_SPHERE_STYLE=%s\n", sphere_style_key(g_cfg.sphere_style));
     sb_appendf(&sb, "SOKARI_ANIMATION=%s\n", appear_anim_key(g_cfg.appear_anim));
-    sb_appendf(&sb, "SOKARI_FACE_LEVEL=%s\n", g_cfg.face_level == 0 ? "poco" : g_cfg.face_level == 2 ? "mucho" : "normal");
     sb_appendf(&sb, "SOKARI_FACE_SYMBOLS=%d\n", g_cfg.face_symbols ? 1 : 0);
     sb_appendf(&sb, "SOKARI_END_SILENCE=%s\n", g_cfg.end_silence == 0 ? "corta" : g_cfg.end_silence == 2 ? "larga" : "normal");
     sb_appendf(&sb, "SOKARI_DUCK=%d\n", g_cfg.duck ? 1 : 0);

@@ -111,7 +111,7 @@ static struct {
     int autostart;
     int subtitles;
     int show_only_talking;
-    int face_level, face_symbols; /* la cara: qué tanto se le nota y los símbolos */
+    int face_symbols; /* la cara con símbolos */
     int full_access; /* acceso completo: no pregunta nada salvo antes de borrar */
     int skill_on[16]; /* las skills locales prendidas (en el orden de skills_get) */
     TtsVoice *voices;
@@ -155,7 +155,6 @@ static const wchar_t *const MODE_DESCS[DISPLAY_MODE_COUNT] = {
 #define CARD_GAP 6
 static const wchar_t *STYLE_LABELS[] = {L"Halo de puntos", L"Líneas (beta)", L"Cara: solo ojos (beta)",
                                         L"Cara: ojos y boca (beta)", L"Cara: de puntos (beta)"};
-static const wchar_t *FACE_LEVEL_LABELS[] = {L"Poco", L"Normal", L"Mucho"};
 static const wchar_t *APPEAR_LABELS[] = {L"Materializarse", L"Deslizarse", L"Zoom", L"Ninguna"};
 static const wchar_t *END_LABELS[] = {L"Poco", L"Normal", L"Más"};
 
@@ -521,15 +520,11 @@ static void layout(void)
             y = layout_segment(x, y, w, &S.resolution_index, RES_LABELS, 5);
             /* Estilo y animación en un solo renglón: con 1366×768 todo tiene
                que caber arriba de Guardar. */
-            /* Con una cara, en medio va «Se nota» (poco, normal, mucho). */
             bool face = S.style >= 2;
-            int sw = w * 2 / 5, lx = x + sw + dp(12), lw = face ? dp(110) : 0;
-            int ax = face ? lx + lw + dp(12) : x + sw + dp(16), aw = x + w - ax;
+            int sw = w * 2 / 5, ax = x + sw + dp(16), aw = x + w - ax;
             layout_label(x, y, sw, L"Estilo");
-            if (face) layout_label(lx, y, lw, L"Se nota");
             y = layout_label(ax, y, aw, L"Al aparecer y desaparecer");
             layout_dropdown(x, y, sw, &S.style, STYLE_LABELS, 5, A_STYLE);
-            if (face) layout_dropdown(lx, y, lw, &S.face_level, FACE_LEVEL_LABELS, 3, A_NONE);
             layout_button(x + w - dp(96), y + dp(2), dp(96), L"Probar", A_TEST_ANIM, false);
             y = layout_dropdown(ax, y, aw - dp(108), &S.appear, APPEAR_LABELS, 4, A_NONE);
             if (face) y = layout_toggle(x, y, w, &S.face_symbols, L"Símbolos en la cara (lágrima, destellos, «?»…)");
@@ -954,7 +949,6 @@ static void load_values(void)
         if (RESOLUTIONS[i] == S.cfg.resolution) S.resolution_index = i;
     S.style = S.cfg.sphere_style >= 0 && S.cfg.sphere_style < 5 ? S.cfg.sphere_style : 0;
     S.appear = S.cfg.appear_anim;
-    S.face_level = S.cfg.face_level >= 0 && S.cfg.face_level <= 2 ? S.cfg.face_level : 1;
     S.face_symbols = S.cfg.face_symbols;
     S.end_silence = S.cfg.end_silence;
     S.duck = S.cfg.duck;
@@ -1056,7 +1050,6 @@ static void save(void)
     c.resolution = RESOLUTIONS[S.resolution_index];
     c.sphere_style = S.style;
     c.appear_anim = S.appear;
-    c.face_level = S.face_level;
     c.face_symbols = S.face_symbols != 0;
     c.end_silence = S.end_silence;
     c.duck = S.duck != 0;

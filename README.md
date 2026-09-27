@@ -68,7 +68,7 @@ Sale al abrir `Sokari.exe` a mano, o desde **Ventana de inicio…** en la bandej
 |---|---|
 | Inicio | Iniciar, modo de pantalla, salida de audio y botones rápidos (ver arriba) |
 | Cuenta | API key de Groq, tu nombre, contraseña de tu perfil y palabra de apagado |
-| Pantalla | Modo de pantalla, resolución de la esfera, estilo (halo de puntos, o en beta: líneas y tres caras), qué tanto se le nota la cara y sus símbolos, cómo aparece y desaparece (con Probar), subtítulos y "Aparecer solo cuando le hablas" |
+| Pantalla | Modo de pantalla, resolución de la esfera, estilo (de fábrica la cara «solo ojos»; también el halo de puntos, líneas y otras dos caras), los símbolos de la cara, cómo aparece y desaparece (con Probar), subtítulos y "Aparecer solo cuando le hablas" |
 | Voz y audio | Volumen, voz de Windows (Raúl de México por defecto, con botón **Probar**), micrófono, salida de audio, sensibilidad de "Hey Sokari", cuánto espera cuando te callas y bajar el volumen de la PC mientras te escucha |
 | General | Iniciar con Windows, sonido de activación, Obsidian y **Acceso completo (menos borrar)** |
 | IA de respaldo | Keys opcionales de NVIDIA, DeepSeek, OpenRouter y GLM (con **Sacar key**) y en qué orden se usan cuando Groq se queda sin cupo |
@@ -84,7 +84,7 @@ Modos de pantalla:
 
 F11 solo funciona en Ventana y Minimizado, cuando la ventana tiene el foco. En los otros modos la esfera nunca toma el teclado, para que las teclas que manda Sokari lleguen a tu app. En esos modos cambias de modo desde la bandeja o la ventana de Inicio.
 
-**La cara (beta).** Tres estilos más en Pantalla → Estilo: *solo ojos* (la de fábrica de las caras), *ojos y boca* y *de puntos* (los puntos de la esfera forman la cara).
+**La cara (beta).** Tres estilos en Pantalla → Estilo: *solo ojos* (la de fábrica de Sokari), *ojos y boca* y *de puntos* (los puntos de la esfera forman la cara). Si tu configuración es de antes de que existiera la cara, pasa una vez a *solo ojos*; si después eliges el halo, se respeta.
 
 - La cara expresa el estado afectivo de Sokari: qué tan bien le va y con cuánta energía, como una mezcla de alegría, tristeza, furia, desagrado, temor y calma. El color de la esfera sigue esa mezcla. No son sentimientos de verdad y no deciden nada.
 - Hace gestos por lo que pasa:
@@ -93,7 +93,7 @@ F11 solo funciona en Ventana y Minimizado, cuando la ventana tiene el foco. En l
   - mira arriba mientras piensa y se inclina cuando te escucha;
   - rebota, tiembla, se encoge, se infla o se aparta cuando cambia la emoción;
   - siempre respira y parpadea, y callada mira alrededor.
-- **Qué tanto se le nota** (poco, normal o mucho) escala todo eso. Los **símbolos** (lágrima, destellos, gota de sudor, «?», la marca de enojo y «…») se pueden apagar.
+- Los gestos siempre se notan «mucho». Los **símbolos** (lágrima, destellos, gota de sudor, «?», la marca de enojo y «…») se pueden apagar.
 - **Cuesta tokens:** con una cara, a la IA se le pide que marque la emoción de cada respuesta, unos 70 tokens más por pedido. Esa etiqueta se quita antes de hablar, así que nunca la oyes ni sale en los subtítulos. Con el halo o las líneas no se pide.
 
 La salida de audio elegida vale para la voz de Sokari y su tono. Si pusiste un sonido de activación propio (MP3 o WAV), ese sale por la salida predeterminada de Windows.
