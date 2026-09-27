@@ -86,7 +86,31 @@ int wmain(int argc, wchar_t **argv)
             capture(h, argv[1], names[i]);
         }
     }
+    /* Pantalla (con el selector de animación) cabe arriba de Guardar con la
+       ventana normal y con la de una pantalla de 1366×768 (688 de alto). Con
+       540 no cabe: así se ve que la prueba sí se da cuenta. */
+    int fails = 0;
+    if (!first) {
+        UINT dpi = GetDpiForWindow(h);
+        const int heights[] = {740, 688, 540};
+        for (int k = 0; k < 3; k++) {
+            RECT r = {0, 0, MulDiv(900, (int)dpi, 96), MulDiv(heights[k], (int)dpi, 96)};
+            AdjustWindowRectExForDpi(&r, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE, 0, dpi);
+            SetWindowPos(h, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
+            for (int i = 1; i <= 2; i++) { /* Cuenta y luego Pantalla: se vuelve a acomodar */
+                int y = MulDiv(110 + i * 46 + 20, (int)dpi, 96), x = MulDiv(60, (int)dpi, 96);
+                SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+                pump(200);
+            }
+            int over = settings_overflow();
+            bool ok = k < 2 ? over == 0 : over > 0;
+            printf("%s Pantalla con %d de alto: %s\n", ok ? "ok   " : "FALLA", heights[k],
+                   over ? "se mete en Guardar" : "cabe arriba de Guardar");
+            if (!ok) fails++;
+            if (k == 1) capture(h, argv[1], L"ui_pantalla_1366x768");
+        }
+    }
     DestroyWindow(h);
     pump(100);
-    return 0;
+    return fails ? 1 : 0;
 }

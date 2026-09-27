@@ -50,6 +50,12 @@ typedef struct {
     float voice, pulse; /* los del cuadro que sigue */
     char *status_text; /* lo que dijo app_status; "" = el de cada estado */
     bool voice_started, talk_pending, hide_notice_shown, fullscreen;
+    /* Entrar y salir de la pantalla: la ventana se esconde cuando la esfera
+       terminó de irse (on_tick). fresh: se acaba de mostrar, el reloj
+       arranca de nuevo. */
+    SphereAppear ap;
+    int anim;
+    bool fresh;
 } Ui;
 
 static Ui U;
@@ -195,6 +201,14 @@ static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer u)
     if (dt > 0.1) dt = 0.1;
     if (dt < 1.0 / 40) return G_SOURCE_CONTINUE; /* ~30 cuadros por segundo alcanzan */
     U.last_us = now;
+    if (U.fresh) {
+        U.fresh = false;
+        dt = 0;
+    }
+    if (sphere_appear_step(&U.ap, dt)) {
+        gtk_widget_hide(U.win);
+        return G_SOURCE_CONTINUE;
+    }
     int st = g_atomic_int_get(&g_state);
     SphereParams target;
     target_params(st, &target);
@@ -236,6 +250,7 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer u)
     double t = (double)(U.last_us - U.start_us) / 1e6;
     cairo_surface_flush(U.surf);
     int canvas = cairo_image_surface_get_width(U.surf);
+    sphere_set_presence(U.sr, U.ap.anim, U.ap.presence);
     sphere_render(U.sr, t, U.angle, U.voice_t, &U.cur, U.voice, U.pulse, (SphereStyle)style,
                   (uint32_t *)cairo_image_surface_get_data(U.surf), cairo_image_surface_get_stride(U.surf) / 4, false);
     cairo_surface_mark_dirty(U.surf);
@@ -245,8 +260,12 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer u)
     /* Del tamaño de siempre; lo que sobra del lienzo es para las ondas. */
     double dst = (double)side * canvas / base;
     double scale = dst / canvas;
+    /* Deslizarse: sube desde abajo del borde de la ventana. */
+    double off = U.ap.anim == SPHERE_ANIM_SLIDE && U.ap.presence < 1.0f
+                     ? sphere_slide_offset(U.ap.presence) * (H + dst) / 2
+                     : 0;
     cairo_save(cr);
-    cairo_translate(cr, (W - dst) / 2, (H - dst) / 2);
+    cairo_translate(cr, (W - dst) / 2, (H - dst) / 2 + off);
     cairo_scale(cr, scale, scale);
     cairo_set_source_surface(cr, U.surf, 0, 0);
     cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
@@ -272,6 +291,7 @@ static bool subtitles_on(void)
     AppConfig cfg = config_snapshot();
     bool on = cfg.subtitles;
     U.want_style = cfg.sphere_style;
+    U.anim = cfg.appear_anim;
     SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
     config_free(&cfg);
     return on;
@@ -310,7 +330,7 @@ static void request_talk(void)
 /* ------------------------------------------------------ Configuración --- */
 
 typedef struct {
-    GtkWidget *key, *name, *mic, *out, *volume, *subtitles, *duck, *full, *autostart, *style, *city;
+    GtkWidget *key, *name, *mic, *out, *volume, *subtitles, *duck, *full, *autostart, *style, *anim, *city;
     GtkWidget *skills[16]; /* las skills locales, en el orden de skills_get */
     bool first_run;
 } SettingsForm;
@@ -358,6 +378,28 @@ static void on_new_skill(GtkButton *b, gpointer label)
     char *t = skills_text();
     gtk_label_set_text(GTK_LABEL(label), t);
     free(t);
+}
+
+static const char *const APPEAR_NAMES[SPHERE_ANIM_COUNT] = {"Materializarse", "Deslizarse", "Zoom", "Ninguna"};
+
+/* Probar: con la ventana a la vista, la esfera sale y vuelve; si estaba
+   cerrada, se asoma y se va. */
+static void on_try_anim(GtkButton *b, gpointer combo)
+{
+    int anim = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
+    if (!U.win || anim < 0 || anim >= SPHERE_ANIM_NONE) return;
+    bool shown = gtk_widget_get_visible(U.win) && U.ap.dir >= 0;
+    sphere_appear_test(&U.ap, (SphereAnim)anim, shown);
+    if (!shown && !gtk_widget_get_visible(U.win)) {
+        U.fresh = true;
+        gtk_widget_show(U.win);
+    }
+}
+
+/* Con «Ninguna» no hay nada que probar. */
+static void on_anim_changed(GtkComboBox *c, gpointer button)
+{
+    gtk_widget_set_sensitive(GTK_WIDGET(button), gtk_combo_box_get_active(c) < SPHERE_ANIM_NONE);
 }
 
 static GtkWidget *add_row(GtkGrid *g, int row, const char *label, GtkWidget *w)
@@ -425,6 +467,8 @@ static void on_settings_response(GtkDialog *d, int response, gpointer u)
         cfg.autostart = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->autostart));
         cfg.sphere_style = gtk_combo_box_get_active(GTK_COMBO_BOX(f->style)) == 1 ? 1 : 0;
         U.want_style = cfg.sphere_style;
+        int anim = gtk_combo_box_get_active(GTK_COMBO_BOX(f->anim));
+        cfg.appear_anim = anim >= 0 && anim < SPHERE_ANIM_COUNT ? anim : 0;
         free(cfg.city);
         cfg.city = str_trim(gtk_entry_get_text(GTK_ENTRY(f->city)));
         StrBuf off;
@@ -498,8 +542,22 @@ static void settings_open(bool first_run)
     gtk_range_set_value(GTK_RANGE(f->volume), cfg.volume);
     f->style = add_row(GTK_GRID(grid), r++, "La esfera", gtk_combo_box_text_new());
     gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(f->style), "Halo de puntos");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(f->style), "Líneas");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(f->style), "Líneas (beta)");
     gtk_combo_box_set_active(GTK_COMBO_BOX(f->style), cfg.sphere_style == 1 ? 1 : 0);
+    /* Cómo entra y sale; Probar la muestra con la elegida, aunque no esté guardada. */
+    GtkWidget *anim_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    f->anim = gtk_combo_box_text_new();
+    for (int i = 0; i < SPHERE_ANIM_COUNT; i++)
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(f->anim), APPEAR_NAMES[i]);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(f->anim), cfg.appear_anim);
+    GtkWidget *try_anim = gtk_button_new_with_label("Probar");
+    gtk_widget_set_tooltip_text(try_anim, "La esfera sale y vuelve a entrar con la animación elegida.");
+    g_signal_connect(try_anim, "clicked", G_CALLBACK(on_try_anim), f->anim);
+    g_signal_connect(f->anim, "changed", G_CALLBACK(on_anim_changed), try_anim);
+    on_anim_changed(GTK_COMBO_BOX(f->anim), try_anim);
+    gtk_box_pack_start(GTK_BOX(anim_row), f->anim, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(anim_row), try_anim, FALSE, FALSE, 0);
+    add_row(GTK_GRID(grid), r++, "Al aparecer y desaparecer", anim_row);
     f->subtitles = check("Mostrar lo que dices y lo que contesto", cfg.subtitles);
     gtk_grid_attach(GTK_GRID(grid), f->subtitles, 0, r++, 2, 1);
     f->duck = check("Bajar el volumen de la PC mientras te escucho", cfg.duck);
@@ -685,6 +743,11 @@ static void mesh_open(void)
 static void show_window(void)
 {
     if (!U.win) return;
+    /* Oculta: entra desde fuera. Yéndose (o en Probar): regresa desde donde iba. */
+    bool hidden = !gtk_widget_get_visible(U.win);
+    if (hidden || sphere_appear_moving(&U.ap) || U.ap.presence < 1.0f)
+        sphere_appear_enter(&U.ap, (SphereAnim)U.anim, hidden);
+    if (hidden) U.fresh = true;
     gtk_widget_show(U.win);
     gtk_window_present(GTK_WINDOW(U.win));
 }
@@ -852,8 +915,9 @@ static const char CSS[] =
 
 static gboolean on_delete(GtkWidget *w, GdkEvent *e, gpointer u)
 {
-    /* Cerrar la ventana no cierra a Sokari: sigue escuchando. */
-    gtk_widget_hide(w);
+    /* Cerrar la ventana no cierra a Sokari: sigue escuchando. La esfera se va
+       con su animación y la ventana se esconde al terminar (on_tick). */
+    if (sphere_appear_leave(&U.ap, (SphereAnim)U.anim)) gtk_widget_hide(w);
     if (!U.hide_notice_shown) {
         U.hide_notice_shown = true;
         app_notify("Sokari", "Sigo escuchando aunque cerraste la ventana. Para verme otra vez, ábreme de nuevo; para "
@@ -890,6 +954,7 @@ static GtkWidget *label(const char *cls, bool wrap)
 
 static void build_window(void)
 {
+    sphere_appear_init(&U.ap);
     GtkCssProvider *css = gtk_css_provider_new();
     gtk_css_provider_load_from_data(css, CSS, -1, NULL);
     gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(css),

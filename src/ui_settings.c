@@ -69,7 +69,7 @@ enum {
     A_NONE, A_GROQ_LINK, A_RESET_PW, A_SHOW_API, A_SHOW_STOP, A_TAILSCALE, A_COPY_SECRET, A_OBSIDIAN, A_PICK_SOUND,
     A_CLEAR_SOUND, A_OPEN_FOLDER, A_CHECK_UPDATE, A_SAVE, A_CANCEL, A_START, A_GO_SETTINGS, A_MUTE, A_TEST_AUDIO,
     A_QUIT, A_MODE_CHANGED, A_OUTPUT_CHANGED, A_TEST_VOICE, A_FIREWALL, A_DETECT, A_DIAGNOSE, A_FULL_ACCESS,
-    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL,
+    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM,
     /* Por dispositivo de la lista: + su número. */
     A_DEV_PROBE = 200, A_DEV_REMOVE = 300,
     /* Por IA de respaldo (0 NVIDIA, 1 DeepSeek, 2 OpenRouter, 3 GLM): ver la key y dónde sacarla. */
@@ -105,6 +105,7 @@ static struct {
     HWND edits[F_EDIT_COUNT];
     Widget widgets[48];
     int nwidgets;
+    int ncontent; /* los de la sección, sin Guardar ni Cancelar */
     int hover, pressed, drag;
     AppConfig cfg;
     int autostart;
@@ -123,6 +124,7 @@ static struct {
     int output_index;
     int home_display, home_output, home_full; /* lo que está en uso ahora (Inicio lo aplica al momento) */
     int display_mode, resolution_index, style;
+    int appear; /* cómo entra y sale la esfera (SphereAnim) */
     int volume, sensitivity;
     int end_silence, duck; /* cuánto espera cuando te callas; bajar el volumen mientras te escucha */
     wchar_t *status_line;
@@ -150,7 +152,8 @@ static const wchar_t *const MODE_DESCS[DISPLAY_MODE_COUNT] = {
 };
 #define CARD_H 56
 #define CARD_GAP 6
-static const wchar_t *STYLE_LABELS[] = {L"Halo de puntos", L"Líneas"};
+static const wchar_t *STYLE_LABELS[] = {L"Halo de puntos", L"Líneas (beta)"};
+static const wchar_t *APPEAR_LABELS[] = {L"Materializarse", L"Deslizarse", L"Zoom", L"Ninguna"};
 static const wchar_t *END_LABELS[] = {L"Poco", L"Normal", L"Más"};
 
 static int dp(int v)
@@ -513,8 +516,14 @@ static void layout(void)
             if (compact) y = layout_help(x, y, w, MODE_DESCS[S.display_mode]) + dp(2);
             y = layout_label(x, y, w, L"Resolución de la esfera");
             y = layout_segment(x, y, w, &S.resolution_index, RES_LABELS, 5);
-            y = layout_label(x, y, w, L"Estilo");
-            y = layout_segment(x, y, w, &S.style, STYLE_LABELS, 2);
+            /* Estilo y animación en un solo renglón: con 1366×768 todo tiene
+               que caber arriba de Guardar. */
+            int sw = w * 2 / 5, ax = x + sw + dp(16), aw = x + w - ax;
+            layout_label(x, y, sw, L"Estilo");
+            y = layout_label(ax, y, aw, L"Al aparecer y desaparecer");
+            layout_segment(x, y, sw, &S.style, STYLE_LABELS, 2);
+            layout_button(x + w - dp(96), y + dp(2), dp(96), L"Probar", A_TEST_ANIM, false);
+            y = layout_dropdown(ax, y, aw - dp(108), &S.appear, APPEAR_LABELS, 4, A_NONE);
             y = layout_toggle(x, y, w, &S.subtitles, L"Mostrar subtítulos de lo que dices y lo que responde");
             y = layout_toggle(x, y, w, &S.show_only_talking, L"Aparecer solo cuando le hablas (y esconderse al terminar)");
             if (S.widgets[S.nwidgets - 1].r.bottom <= cr.bottom - dp(64) - dp(10)) break;
@@ -650,6 +659,7 @@ static void layout(void)
     }
     }
 
+    S.ncontent = S.nwidgets;
     if (S.section != SEC_HOME) {
         int by = cr.bottom - dp(64);
         layout_button(cr.right - dp(40) - dp(150), by, dp(150), S.first_run ? L"Empezar" : L"Guardar", A_SAVE, true);
@@ -934,6 +944,7 @@ static void load_values(void)
     for (int i = 0; i < 5; i++)
         if (RESOLUTIONS[i] == S.cfg.resolution) S.resolution_index = i;
     S.style = S.cfg.sphere_style;
+    S.appear = S.cfg.appear_anim;
     S.end_silence = S.cfg.end_silence;
     S.duck = S.cfg.duck;
     S.subtitles = S.cfg.subtitles;
@@ -1055,6 +1066,7 @@ static void save(void)
     c.display_mode = S.display_mode;
     c.resolution = RESOLUTIONS[S.resolution_index];
     c.sphere_style = S.style;
+    c.appear_anim = S.appear;
     c.end_silence = S.end_silence;
     c.duck = S.duck != 0;
     c.subtitles = S.subtitles != 0;
@@ -1446,6 +1458,17 @@ static void do_action(int action)
         set_status(msg);
         break;
     }
+    case A_TEST_ANIM:
+        if (S.appear == 3) {
+            set_status(L"Con «Ninguna» aparece y desaparece de golpe: no hay nada que probar.");
+        } else if (S.display_mode == DISPLAY_MINIMIZED) {
+            set_status(L"En Minimizado no hay animación: la esfera vive en la barra de tareas.");
+        } else if (!ui_preview_appear(S.appear)) {
+            set_status(L"La animación se prueba con Sokari iniciado y fuera de Minimizado.");
+        } else {
+            set_status(L"Mira la esfera. Si te gusta, dale a Guardar.");
+        }
+        break;
     case A_TEST_VOICE:
         if (S.voice_index >= S.nvoices) {
             set_status(L"No encontré voces instaladas en Windows.");
@@ -1745,6 +1768,17 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
 HWND settings_window(void)
 {
     return S.hwnd;
+}
+
+int settings_overflow(void)
+{
+    if (!S.hwnd) return 0;
+    RECT cr;
+    GetClientRect(S.hwnd, &cr);
+    int limit = cr.bottom - dp(64) - dp(10), over = 0;
+    for (int i = 0; i < S.ncontent; i++)
+        if (S.widgets[i].r.bottom - limit > over) over = S.widgets[i].r.bottom - limit;
+    return over;
 }
 
 void settings_sync(void)

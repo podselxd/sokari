@@ -18,6 +18,20 @@ static SRWLOCK g_lock = SRWLOCK_INIT;
 static const char *DISPLAY_KEYS[DISPLAY_MODE_COUNT] = {"fullscreen", "fullscreen_borderless", "windowed_borderless",
                                                       "windowed", "minimized"};
 
+static const char *const APPEAR_KEYS[] = {"materializar", "deslizar", "zoom", "ninguna"};
+
+const char *appear_anim_key(int anim)
+{
+    return APPEAR_KEYS[anim >= 0 && anim < 4 ? anim : 0];
+}
+
+int appear_anim_from_key(const char *key)
+{
+    for (int i = 0; i < 4; i++)
+        if (key && !strcmp(key, APPEAR_KEYS[i])) return i;
+    return 0;
+}
+
 const char *display_mode_key(int mode)
 {
     if (mode < 0 || mode >= DISPLAY_MODE_COUNT) mode = DISPLAY_FULLSCREEN_BORDERLESS;
@@ -58,6 +72,7 @@ static void defaults(AppConfig *c)
     c->volume = 100;
     c->wake_sensitivity = 67;
     c->sphere_style = 0;
+    c->appear_anim = 0;
     c->orb_x = c->orb_y = -1;
     c->win_x = c->win_y = c->win_w = c->win_h = -1;
     c->subtitles = true;
@@ -105,6 +120,8 @@ static void apply_kv(AppConfig *c, const char *key, const char *value)
         c->duck = parse_bool(value);
     } else if (!strcmp(key, "SOKARI_SPHERE_STYLE")) {
         c->sphere_style = !strcmp(value, "lineas") ? 1 : 0;
+    } else if (!strcmp(key, "SOKARI_ANIMATION")) {
+        c->appear_anim = appear_anim_from_key(value);
     } else if (!strcmp(key, "SOKARI_ORB_POS")) {
         if (sscanf(value, "%d,%d", &c->orb_x, &c->orb_y) != 2) c->orb_x = c->orb_y = -1;
     } else if (!strcmp(key, "SOKARI_WINDOW")) {
@@ -183,6 +200,7 @@ static bool save_locked(void)
     sb_appendf(&sb, "SOKARI_VOLUME=%d\n", g_cfg.volume);
     sb_appendf(&sb, "SOKARI_WAKE_SENSITIVITY=%d\n", g_cfg.wake_sensitivity);
     sb_appendf(&sb, "SOKARI_SPHERE_STYLE=%s\n", g_cfg.sphere_style == 1 ? "lineas" : "puntos");
+    sb_appendf(&sb, "SOKARI_ANIMATION=%s\n", appear_anim_key(g_cfg.appear_anim));
     sb_appendf(&sb, "SOKARI_END_SILENCE=%s\n", g_cfg.end_silence == 0 ? "corta" : g_cfg.end_silence == 2 ? "larga" : "normal");
     sb_appendf(&sb, "SOKARI_DUCK=%d\n", g_cfg.duck ? 1 : 0);
     sb_appendf(&sb, "SOKARI_ORB_POS=%d,%d\n", g_cfg.orb_x, g_cfg.orb_y);
