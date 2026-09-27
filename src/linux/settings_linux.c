@@ -15,6 +15,7 @@
 #include "audio.h"
 #include "autostart.h"
 #include "config.h"
+#include "linux/linux.h"
 #include "linux/settings_linux.h"
 #include "log.h"
 #include "memory.h"
@@ -583,7 +584,7 @@ static GtkWidget *page_general(Form *f, const AppConfig *cfg)
     gtk_grid_attach(GTK_GRID(g), row, 1, r++, 1, 1);
     row = button_row();
     add_button(row, "Abrir carpeta de Sokari", G_CALLBACK(on_open_folder), f);
-    f->update = add_button(row, "Buscar actualizaciones", G_CALLBACK(on_check_update), f);
+    f->update = add_button(row, LINUX_UPDATE_LABEL, G_CALLBACK(on_check_update), f);
     gtk_widget_set_margin_top(row, 8);
     add_wide(g, r++, row);
     return g;
@@ -968,7 +969,15 @@ void settings_linux_open(GtkWindow *parent, bool first_run, SettingsPage page)
     GtkWidget *side = gtk_stack_sidebar_new();
     gtk_stack_sidebar_set_stack(GTK_STACK_SIDEBAR(side), GTK_STACK(f->stack));
     gtk_widget_set_size_request(side, 180, -1);
-    gtk_box_pack_start(GTK_BOX(body), side, FALSE, FALSE, 0);
+    /* La versión, abajo de las secciones (como en Windows). */
+    GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_pack_start(GTK_BOX(left), side, TRUE, TRUE, 0);
+    GtkWidget *ver = gtk_label_new("versión " SOKARI_VERSION);
+    gtk_style_context_add_class(gtk_widget_get_style_context(ver), "dim-label");
+    gtk_widget_set_margin_top(ver, 6);
+    gtk_widget_set_margin_bottom(ver, 8);
+    gtk_box_pack_end(GTK_BOX(left), ver, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(body), left, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(body), gtk_separator_new(GTK_ORIENTATION_VERTICAL), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(body), f->stack, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(content), body, TRUE, TRUE, 0);

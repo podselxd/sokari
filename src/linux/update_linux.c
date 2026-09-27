@@ -143,6 +143,20 @@ bool linux_package_verify(const char *path, double size, const char *sha256, con
     return ok;
 }
 
+static volatile LONG g_installed;
+
+bool linux_update_installed(void)
+{
+    return InterlockedCompareExchange(&g_installed, 0, 0) != 0;
+}
+
+char *linux_update_notice(const char *tag)
+{
+    return str_printf("Hay una versión nueva de Sokari (%s). Dale a «Instalar» (pide tu contraseña); también está en "
+                      "el menú de Sokari → «" LINUX_UPDATE_LABEL "».",
+                      tag);
+}
+
 char *update_check_now(void)
 {
     Release rel;
@@ -184,6 +198,7 @@ char *update_check_now(void)
             if (code == 0) {
                 r = str_printf("Listo: instalé Sokari %s. Ciérrame (Salir) y vuelve a abrirme para usarla.", rel.tag);
                 log_msg("Actualización: instalé %s.", rel.tag);
+                InterlockedExchange(&g_installed, 1);
             } else {
                 r = str_printf("No se instaló la versión %s (¿cancelaste la contraseña?). El paquete quedó en %s.",
                                rel.tag, path);
@@ -209,10 +224,9 @@ static DWORD WINAPI background(LPVOID arg)
             if (linux_version_newer(rel.tag, SOKARI_VERSION) && (!told || strcmp(told, rel.tag))) {
                 free(told);
                 told = xstrdup(rel.tag);
-                char *msg = str_printf("Hay una versión nueva de Sokari (%s). Para instalarla: Configuración → Buscar "
-                                       "actualización, o «sokari --actualizar».",
-                                       rel.tag);
-                app_notify("Sokari", msg);
+                char *msg = linux_update_notice(rel.tag);
+                if (ui_active()) ui_post_notify_button("version-nueva", "Sokari", msg, "Instalar", "app.actualizar");
+                else app_notify("Sokari", msg);
                 free(msg);
             }
             release_free(&rel);

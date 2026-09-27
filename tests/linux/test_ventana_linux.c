@@ -15,7 +15,9 @@ int main(void)
         return 0;
     }
     char *problem = ui_window_problems();
-    printf("%s la barra de la ventana se ve: Hablar, el menú y la X\n", problem ? "FALLA" : "ok   ");
+    printf("%s la barra se ve (Hablar, el menú y la X) y el menú de arriba y ☰ son el mismo,\n"
+           "      con la versión y «Buscar actualizaciones»\n",
+           problem ? "FALLA" : "ok   ");
     if (problem) printf("      (%s)\n", problem);
     free(problem);
     return problem ? 1 : 0;

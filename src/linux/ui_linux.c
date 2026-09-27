@@ -42,7 +42,7 @@ typedef struct {
     GtkApplication *app;
     GtkWidget *win, *area, *status, *sub_user, *sub_sokari;
     AppIndicator *tray;
-    GtkWidget *tray_mute;
+    GMenu *menu; /* el mismo menú arriba (bandeja) y en ☰ */
     SphereRenderer *sr;
     cairo_surface_t *surf;
     int base, style, want_style;
@@ -119,8 +119,9 @@ void ui_post_state(int st)
 }
 
 typedef struct {
-    int kind; /* 0 subtítulo tuyo, 1 de Sokari, 2 estado, 3 aviso */
+    int kind; /* 0 subtítulo tuyo, 1 de Sokari, 2 estado, 3 aviso, 4 aviso con botón */
     char *a, *b;
+    char *id, *button, *action; /* el aviso con botón */
 } Post;
 
 static gboolean on_post_idle(gpointer u)
@@ -135,14 +136,23 @@ static gboolean on_post_idle(gpointer u)
         free(U.status_text);
         U.status_text = xstrdup(p->a);
         refresh_status();
-    } else if (p->kind == 3 && U.app) {
+    } else if ((p->kind == 3 || p->kind == 4) && U.app) {
         GNotification *n = g_notification_new(p->a);
         g_notification_set_body(n, p->b);
-        g_application_send_notification(G_APPLICATION(U.app), NULL, n);
+        if (p->kind == 4) {
+            g_notification_add_button(n, p->button, p->action);
+            g_notification_set_default_action(n, p->action);
+        }
+        /* Con nombre, uno nuevo reemplaza al anterior en vez de juntarse
+           (el número sobre el ícono del dock no crece). */
+        g_application_send_notification(G_APPLICATION(U.app), p->kind == 4 ? p->id : "aviso", n);
         g_object_unref(n);
     }
     free(p->a);
     free(p->b);
+    free(p->id);
+    free(p->button);
+    free(p->action);
     free(p);
     return G_SOURCE_REMOVE;
 }
@@ -153,6 +163,19 @@ static void post(int kind, const char *a, const char *b)
     p->kind = kind;
     p->a = xstrdup(a ? a : "");
     p->b = xstrdup(b ? b : "");
+    g_idle_add(on_post_idle, p);
+}
+
+void ui_post_notify_button(const char *id, const char *title, const char *text, const char *button,
+                           const char *action)
+{
+    Post *p = xcalloc(1, sizeof *p);
+    p->kind = 4;
+    p->a = xstrdup(title ? title : "Sokari");
+    p->b = xstrdup(text ? text : "");
+    p->id = xstrdup(id);
+    p->button = xstrdup(button);
+    p->action = xstrdup(action);
     g_idle_add(on_post_idle, p);
 }
 
@@ -475,12 +498,32 @@ static void update_work(GTask *t, gpointer src, gpointer data, GCancellable *c)
     g_task_return_pointer(t, update_check_now(), free);
 }
 
+/* Reabre Sokari cuando esta ya se cerró (la instalada es la nueva). */
+static void restart_sokari(void)
+{
+    char pid[16];
+    snprintf(pid, sizeof pid, "%d", (int)getpid());
+    char *argv[] = {"/bin/sh", "-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; exec sokari", "sh", pid,
+                    NULL};
+    if (g_spawn_async(NULL, argv, NULL, G_SPAWN_DEFAULT, NULL, NULL, NULL, NULL))
+        g_action_group_activate_action(G_ACTION_GROUP(U.app), "salir", NULL);
+}
+
+static void on_update_response(GtkDialog *d, gint response, gpointer u)
+{
+    gtk_widget_destroy(GTK_WIDGET(d));
+    if (response == 1) restart_sokari();
+}
+
 static void update_done(GObject *src, GAsyncResult *res, gpointer data)
 {
     char *msg = g_task_propagate_pointer(G_TASK(res), NULL);
+    bool installed = linux_update_installed();
     GtkWidget *m = gtk_message_dialog_new(GTK_WINDOW(U.win), GTK_DIALOG_DESTROY_WITH_PARENT, GTK_MESSAGE_INFO,
-                                          GTK_BUTTONS_OK, "%s", msg ? msg : "No pude revisar.");
-    g_signal_connect(m, "response", G_CALLBACK(gtk_widget_destroy), NULL);
+                                          installed ? GTK_BUTTONS_NONE : GTK_BUTTONS_OK, "%s",
+                                          msg ? msg : "No pude revisar.");
+    if (installed) gtk_dialog_add_buttons(GTK_DIALOG(m), "Después", 0, "Reiniciar Sokari", 1, NULL);
+    g_signal_connect(m, "response", G_CALLBACK(on_update_response), NULL);
     gtk_widget_show(m);
     free(msg);
 }
@@ -508,17 +551,46 @@ static const GActionEntry ACTIONS[] = {
     {"mostrar", act_show, NULL, NULL, NULL, {0}},    {"hablar", act_talk, NULL, NULL, NULL, {0}},
     {"configuracion", act_settings, NULL, NULL, NULL, {0}}, {"malla", act_mesh, NULL, NULL, NULL, {0}},
     {"salir", act_quit, NULL, NULL, NULL, {0}},      {"silencio", act_mute, NULL, "false", NULL, {0}},
-    {"actualizar", act_update, NULL, NULL, NULL, {0}},
+    {"actualizar", act_update, NULL, NULL, NULL, {0}}, {"version", NULL, NULL, NULL, NULL, {0}},
 };
 
-/* ------------------------------------------------------ el ícono de arriba --- */
-
-static void tray_item(GtkWidget *menu, const char *label, const char *action)
+/* El menú, uno solo: el del ícono de arriba y el de ☰ salen de aquí. */
+static GMenu *menu_new(void)
 {
-    GtkWidget *it = gtk_menu_item_new_with_label(label);
-    gtk_actionable_set_action_name(GTK_ACTIONABLE(it), action);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), it);
+    GMenu *menu = g_menu_new(), *sec = g_menu_new();
+    g_menu_append(sec, "Mostrar Sokari", "app.mostrar");
+    g_menu_append(sec, "Hablarle ahora", "app.hablar");
+    g_menu_append(sec, "Micrófono en silencio", "app.silencio");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(sec));
+    g_object_unref(sec);
+    sec = g_menu_new();
+    g_menu_append(sec, "Configuración", "app.configuracion");
+    g_menu_append(sec, "Tus PCs", "app.malla");
+    g_menu_append(sec, LINUX_UPDATE_LABEL, "app.actualizar");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(sec));
+    g_object_unref(sec);
+    sec = g_menu_new();
+    g_menu_append(sec, "Sokari " SOKARI_VERSION, "app.version"); /* apagada: solo dice la versión */
+    g_menu_append(sec, "Salir", "app.salir");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(sec));
+    g_object_unref(sec);
+    return menu;
 }
+
+static GMenuModel *app_menu(void)
+{
+    if (!U.menu) U.menu = menu_new();
+    return G_MENU_MODEL(U.menu);
+}
+
+static GtkWidget *tray_menu_new(void)
+{
+    GtkWidget *menu = gtk_menu_new_from_model(app_menu());
+    if (U.app) gtk_widget_insert_action_group(menu, "app", G_ACTION_GROUP(U.app));
+    return menu;
+}
+
+/* ------------------------------------------------------ el ícono de arriba --- */
 
 /* El PNG del ícono en ~/.cache/sokari/iconos (el indicador lo pide por nombre y carpeta). */
 static char *icon_dir(void)
@@ -573,17 +645,7 @@ static void tray_init(void)
     app_indicator_set_title(U.tray, "Sokari");
     G_GNUC_END_IGNORE_DEPRECATIONS
     free(dir);
-    GtkWidget *menu = gtk_menu_new();
-    tray_item(menu, "Mostrar Sokari", "app.mostrar");
-    tray_item(menu, "Hablarle ahora", "app.hablar");
-    U.tray_mute = gtk_check_menu_item_new_with_label("Micrófono en silencio");
-    gtk_actionable_set_action_name(GTK_ACTIONABLE(U.tray_mute), "app.silencio");
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), U.tray_mute);
-    tray_item(menu, "Configuración", "app.configuracion");
-    tray_item(menu, "Tus PCs", "app.malla");
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
-    tray_item(menu, "Salir", "app.salir");
-    gtk_widget_insert_action_group(menu, "app", G_ACTION_GROUP(U.app));
+    GtkWidget *menu = tray_menu_new();
     gtk_widget_show_all(menu);
     G_GNUC_BEGIN_IGNORE_DEPRECATIONS
     app_indicator_set_menu(U.tray, GTK_MENU(menu));
@@ -644,17 +706,9 @@ static GtkWidget *titlebar_new(void)
     GtkWidget *bar = gtk_header_bar_new();
     gtk_header_bar_set_title(GTK_HEADER_BAR(bar), "Sokari");
     gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(bar), TRUE);
-    GMenu *menu = g_menu_new();
-    g_menu_append(menu, "Hablarle ahora", "app.hablar");
-    g_menu_append(menu, "Micrófono en silencio", "app.silencio");
-    g_menu_append(menu, "Configuración", "app.configuracion");
-    g_menu_append(menu, "Tus PCs", "app.malla");
-    g_menu_append(menu, "Buscar actualización", "app.actualizar");
-    g_menu_append(menu, "Salir", "app.salir");
     GtkWidget *mb = gtk_menu_button_new();
-    gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(mb), G_MENU_MODEL(menu));
+    gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(mb), app_menu());
     gtk_button_set_image(GTK_BUTTON(mb), gtk_image_new_from_icon_name("open-menu-symbolic", GTK_ICON_SIZE_BUTTON));
-    g_object_unref(menu);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(bar), mb);
     GtkWidget *talk = gtk_button_new_with_label("Hablar");
     gtk_actionable_set_action_name(GTK_ACTIONABLE(talk), "app.hablar");
@@ -666,25 +720,80 @@ static GtkWidget *titlebar_new(void)
     return bar;
 }
 
-/* Para las pruebas (necesita pantalla): lo que falla en la barra, o NULL. */
+/* Los renglones del menú, "texto|acción" uno por línea (heap), secciones incluidas. */
+static void menu_lines(GMenuModel *m, GString *out)
+{
+    for (int i = 0; i < g_menu_model_get_n_items(m); i++) {
+        GMenuModel *sec = g_menu_model_get_item_link(m, i, G_MENU_LINK_SECTION);
+        if (sec) {
+            menu_lines(sec, out);
+            g_object_unref(sec);
+            continue;
+        }
+        char *label = NULL, *action = NULL;
+        g_menu_model_get_item_attribute(m, i, G_MENU_ATTRIBUTE_LABEL, "s", &label);
+        g_menu_model_get_item_attribute(m, i, G_MENU_ATTRIBUTE_ACTION, "s", &action);
+        g_string_append_printf(out, "%s|%s\n", label ? label : "", action ? action : "");
+        g_free(label);
+        g_free(action);
+    }
+}
+
+/* Para las pruebas (necesita pantalla): lo que falla en la barra y en los
+   menús, o NULL. */
 char *ui_window_problems(void)
 {
     GtkWidget *bar = titlebar_new();
     g_object_ref_sink(bar);
     char *problem = NULL;
-    bool talk = false, menu = false;
+    bool talk = false;
+    GtkWidget *menu_button = NULL;
     GList *kids = gtk_container_get_children(GTK_CONTAINER(bar));
     for (GList *k = kids; k; k = k->next) {
-        const char *action = GTK_IS_ACTIONABLE(k->data) ? gtk_actionable_get_action_name(GTK_ACTIONABLE(k->data)) : NULL;
+        const char *action =
+            GTK_IS_ACTIONABLE(k->data) ? gtk_actionable_get_action_name(GTK_ACTIONABLE(k->data)) : NULL;
         if (action && !strcmp(action, "app.hablar")) talk = gtk_widget_get_visible(k->data);
-        if (GTK_IS_MENU_BUTTON(k->data)) menu = gtk_widget_get_visible(k->data);
+        if (GTK_IS_MENU_BUTTON(k->data) && gtk_widget_get_visible(k->data)) menu_button = k->data;
     }
     g_list_free(kids);
+    GString *lines = g_string_new(NULL);
+    menu_lines(app_menu(), lines);
+    /* Lo que tiene que estar, igual arriba y en ☰. */
+    static const char *const NEED[] = {"Mostrar Sokari|app.mostrar", "Hablarle ahora|app.hablar",
+                                       "Micrófono en silencio|app.silencio", "Configuración|app.configuracion",
+                                       "Tus PCs|app.malla", LINUX_UPDATE_LABEL "|app.actualizar",
+                                       "Sokari " SOKARI_VERSION "|app.version", "Salir|app.salir"};
+    const char *missing = NULL;
+    for (size_t i = 0; i < G_N_ELEMENTS(NEED) && !missing; i++) {
+        char *line = g_strdup_printf("%s\n", NEED[i]);
+        if (!strstr(lines->str, line)) missing = NEED[i];
+        g_free(line);
+    }
+    GtkWidget *tray = tray_menu_new();
+    g_object_ref_sink(tray);
+    int tray_items = 0, model_items = 0;
+    kids = gtk_container_get_children(GTK_CONTAINER(tray));
+    for (GList *k = kids; k; k = k->next)
+        if (!GTK_IS_SEPARATOR_MENU_ITEM(k->data)) tray_items++;
+    g_list_free(kids);
+    for (const char *c = lines->str; *c; c++) model_items += *c == '\n';
+    char *notice = linux_update_notice("v9.9.9");
     if (!gtk_widget_get_visible(bar))
         problem = xstrdup("la barra de arriba nace escondida (sin ella no hay Hablar, ni menú, ni X, ni cómo moverla)");
     else if (!talk) problem = xstrdup("no se ve el botón Hablar");
-    else if (!menu) problem = xstrdup("no se ve el botón del menú");
+    else if (!menu_button) problem = xstrdup("no se ve el botón del menú");
     else if (!gtk_header_bar_get_show_close_button(GTK_HEADER_BAR(bar))) problem = xstrdup("no tiene la X para cerrar");
+    else if (gtk_menu_button_get_menu_model(GTK_MENU_BUTTON(menu_button)) != app_menu())
+        problem = xstrdup("el menú ☰ no es el mismo que el de arriba");
+    else if (missing) problem = str_printf("al menú le falta «%s»", missing);
+    else if (tray_items != model_items)
+        problem = str_printf("el menú de arriba tiene %d renglones y ☰ %d", tray_items, model_items);
+    else if (!strstr(notice, "«" LINUX_UPDATE_LABEL "»"))
+        problem = xstrdup("el aviso de versión nueva no nombra el botón que sí existe");
+    free(notice);
+    g_string_free(lines, TRUE);
+    gtk_widget_destroy(tray);
+    g_object_unref(tray);
     gtk_widget_destroy(bar);
     g_object_unref(bar);
     return problem;
@@ -755,6 +864,8 @@ static void startup(bool from_autostart)
     g_atomic_int_set(&g_active, 1);
     g_application_hold(G_APPLICATION(U.app));
     g_action_map_add_action_entries(G_ACTION_MAP(U.app), ACTIONS, G_N_ELEMENTS(ACTIONS), NULL);
+    GAction *version = g_action_map_lookup_action(G_ACTION_MAP(U.app), "version");
+    g_simple_action_set_enabled(G_SIMPLE_ACTION(version), FALSE);
     GAction *mute = g_action_map_lookup_action(G_ACTION_MAP(U.app), "silencio");
     g_simple_action_set_state(G_SIMPLE_ACTION(mute), g_variant_new_boolean(config_mic_muted()));
     const char *accels_talk[] = {"<Primary>h", NULL};
