@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'ajustes.dart';
+import 'fallas.dart';
 import 'malla.dart';
 
 class PantallaAjustes extends StatefulWidget {
@@ -65,7 +66,15 @@ class _PantallaAjustesState extends State<PantallaAjustes> {
 
   Future<void> _guardar() async {
     final a = _actuales;
-    await widget.almacen.guardar(a);
+    try {
+      await widget.almacen.guardar(a);
+    } catch (e, s) {
+      Fallas.registrar(e, s, 'No pude guardar tus ajustes');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No pude guardar tus ajustes: $e')));
+      }
+      return;
+    }
     if (mounted) Navigator.of(context).pop(a);
   }
 

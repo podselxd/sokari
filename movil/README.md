@@ -46,6 +46,16 @@ La prueba de conexión no gasta tu cupo de Groq: solo revisa que tu PC conteste 
 | "El secreto no coincide" | Copia otra vez el secreto de *Configuración → General* en la PC. |
 | "Sokari está ocupado" | Estaba contestándote a ti o a otra PC; prueba en unos segundos. |
 
+## Si se queda en el ícono de Sokari
+
+Android muestra el ícono de Sokari mientras la app dibuja su primera pantalla. Si en tu celular no alcanza a dibujarla, la app ya no se queda ahí para siempre:
+
+1. A los 10 segundos sale un aviso, **Sokari no pudo mostrar su pantalla**, con el detalle: tu celular, tu versión de Android y el modo de dibujo que falló.
+2. **Reintentar** vuelve a abrir la app con otro modo de dibujo. Primero prueba Impeller con OpenGL y luego Skia. El modo que funcione se queda en tu celular, y con cada versión nueva de la app se vuelve a probar el normal.
+3. Si sigue igual, toca **Copiar** y manda ese texto a quien te ayuda con Sokari.
+
+Si la app se cerró por un error, la siguiente vez que la abras te lo muestra arriba, con **Copiar**.
+
 ## Límites y privacidad
 
 - **Lo delicado no se puede confirmar desde el celular.** Mover o borrar archivos pide un "sí" de voz frente a la PC.
@@ -93,6 +103,9 @@ flutter build apk --release
 | `lib/voz.dart` | Reconocimiento de voz y lectura en voz alta de Android |
 | `lib/ajustes.dart` | Dirección, secreto y preferencias, guardados cifrados |
 | `lib/main.dart`, `lib/pantalla_ajustes.dart` | Las dos pantallas |
+| `lib/fallas.dart` | Los errores a la vista, con «Copiar» (nada se queda callado) |
+| `android/.../MainActivity.kt`, `Arranque.kt`, `AvisoActivity.kt` | Si no dibuja en 10 s: el aviso de Android y el modo de dibujo de respaldo |
+| `probar_emulador.sh` | La CI instala el APK en un Android emulado (API 29 y 34) y revisa que dibuje con cada modo y que «Reintentar» funcione |
 | `test/` | Pruebas del cliente (con una PC de mentira) y de las pantallas (con micrófono y voz de mentira) |
 
 El ícono sale de `assets/`: `dart run flutter_launcher_icons`.

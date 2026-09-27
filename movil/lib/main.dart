@@ -1,16 +1,43 @@
 // Sokari Remoto: le hablas al celular y tu Sokari de la PC hace el trabajo.
 // El celular pasa tu voz a texto, se lo manda a la PC por Tailscale y lee en
 // voz alta lo que contesta.
+import 'dart:async';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'ajustes.dart';
+import 'fallas.dart';
 import 'malla.dart';
 import 'pantalla_ajustes.dart';
 import 'voz.dart';
 
 void main() {
-  runApp(SokariApp(almacen: AlmacenSeguro(), oido: OidoAndroid(), voz: VozAndroid()));
+  // Ningún error se queda callado: se ve en pantalla (ver fallas.dart).
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    FlutterError.onError = (d) {
+      FlutterError.presentError(d);
+      Fallas.registrar(d.exception, d.stack);
+    };
+    PlatformDispatcher.instance.onError = (e, s) {
+      Fallas.registrar(e, s);
+      return true;
+    };
+    ErrorWidget.builder = (d) => Material(
+          color: fondo,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('Algo falló al dibujar esta parte:\n${d.exception}',
+                  style: const TextStyle(color: Color(0xFFFCA5A5))),
+            ),
+          ),
+        );
+    runApp(SokariApp(almacen: AlmacenSeguro(), oido: OidoAndroid(), voz: VozAndroid(), arranque: ArranqueAndroid()));
+  }, (e, s) => Fallas.registrar(e, s));
 }
 
 typedef FabricaCliente = ClienteMalla Function(Ajustes a);
@@ -28,12 +55,14 @@ class SokariApp extends StatelessWidget {
     required this.oido,
     required this.voz,
     this.crearCliente = clienteReal,
+    this.arranque,
   });
 
   final AlmacenAjustes almacen;
   final Oido oido;
   final Voz voz;
   final FabricaCliente crearCliente;
+  final Arranque? arranque;
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +77,7 @@ class SokariApp extends StatelessWidget {
       locale: const Locale('es', 'MX'),
       supportedLocales: const [Locale('es', 'MX'), Locale('es')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      home: PantallaPrincipal(almacen: almacen, oido: oido, voz: voz, crearCliente: crearCliente),
+      home: PantallaPrincipal(almacen: almacen, oido: oido, voz: voz, crearCliente: crearCliente, arranque: arranque),
     );
   }
 }
@@ -70,12 +99,14 @@ class PantallaPrincipal extends StatefulWidget {
     required this.oido,
     required this.voz,
     required this.crearCliente,
+    this.arranque,
   });
 
   final AlmacenAjustes almacen;
   final Oido oido;
   final Voz voz;
   final FabricaCliente crearCliente;
+  final Arranque? arranque;
 
   @override
   State<PantallaPrincipal> createState() => _PantallaPrincipalState();
@@ -90,10 +121,17 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   final _texto = TextEditingController();
   final _scroll = ScrollController();
 
+  /// Los ajustes cifrados tardan en abrir (en vez de solo el círculo girando).
+  bool _lento = false;
+
+  /// Le diste «Configurar de nuevo» mientras tardaban: lo que llegue tarde ya no cuenta.
+  bool _deNuevo = false;
+
   @override
   void initState() {
     super.initState();
     _cargar();
+    _revisarArranque();
   }
 
   @override
@@ -105,10 +143,35 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
   }
 
   Future<void> _cargar() async {
-    final a = await widget.almacen.cargar();
-    if (!mounted) return;
-    _usar(a);
-    if (a.completos && a.escucharAlAbrir) _hablar();
+    final aviso = Timer(const Duration(seconds: 3), () {
+      if (mounted && _ajustes == null) setState(() => _lento = true);
+    });
+    try {
+      final a = await widget.almacen.cargar();
+      if (!mounted || _deNuevo) return;
+      _usar(a);
+      if (a.completos && a.escucharAlAbrir) _hablar();
+    } catch (e, s) {
+      Fallas.registrar(e, s, 'No pude leer tus ajustes guardados');
+      if (mounted && _ajustes == null) _usar(const Ajustes());
+    } finally {
+      aviso.cancel();
+    }
+  }
+
+  /// Si la vez pasada Android no alcanzó a mostrar la app (o se cerró por un
+  /// error), aquí se ve qué pasó.
+  Future<void> _revisarArranque() async {
+    final e = await widget.arranque?.ultimoError();
+    if (e == null || e.trim().isEmpty || !mounted) return;
+    Fallas.ultimo.value = 'La vez pasada Sokari no abrió bien. Ya se ajustó sola; si vuelve a pasar, copia esto y '
+        'mándalo a quien te ayuda.\n\n$e';
+  }
+
+  void _configurarDeNuevo() {
+    _deNuevo = true;
+    _usar(const Ajustes());
+    _abrirAjustes();
   }
 
   void _usar(Ajustes a) {
@@ -273,14 +336,89 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
         ],
       ),
       body: SafeArea(
-        child: a == null
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  Expanded(child: a.completos ? _conversacion() : _sinConfigurar()),
-                  if (a.completos) _controles(),
-                ],
+        child: Column(
+          children: [
+            ValueListenableBuilder<String?>(
+              valueListenable: Fallas.ultimo,
+              builder: (_, falla, _) => falla == null ? const SizedBox.shrink() : _falla(falla),
+            ),
+            Expanded(
+              child: a == null
+                  ? _abriendo()
+                  : Column(
+                      children: [
+                        Expanded(child: a.completos ? _conversacion() : _sinConfigurar()),
+                        if (a.completos) _controles(),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _abriendo() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            if (_lento) ...[
+              const SizedBox(height: 20),
+              const Text(
+                'Tus ajustes guardados están tardando en abrir.',
+                key: Key('lento'),
+                textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 8),
+              TextButton(
+                key: const Key('configurar_de_nuevo'),
+                onPressed: _configurarDeNuevo,
+                child: const Text('Configurar de nuevo'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Un error, arriba y a la vista, con «Copiar» para mandárselo a quien te ayuda.
+  Widget _falla(String texto) {
+    return Material(
+      key: const Key('falla'),
+      color: const Color(0xFF3B1D24),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 8, 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Algo falló', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFFFCA5A5))),
+            const SizedBox(height: 4),
+            Text(texto, maxLines: 4, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  key: const Key('copiar_falla'),
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: texto));
+                    _avisar('Copiado');
+                  },
+                  child: const Text('Copiar'),
+                ),
+                TextButton(
+                  key: const Key('cerrar_falla'),
+                  onPressed: () => Fallas.ultimo.value = null,
+                  child: const Text('Cerrar'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
