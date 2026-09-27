@@ -17,6 +17,7 @@
 #include "third_party/cJSON.h"
 #include "tools.h"
 #include "util.h"
+#include "vibe.h"
 
 /* ------------------------------------------------------------ registro --- */
 
@@ -37,7 +38,9 @@ static const struct {
     {{"clima", "El clima", "«¿Cómo está el clima?», «¿Va a llover mañana?»"}, sk_weather},
     {{"notas", "Notas y pendientes", "«Anota comprar leche», «¿Qué tengo pendiente?»"}, sk_notes},
     {{"pc", "Cómo va la PC", "«¿Cuánta batería tengo?», «¿Cómo va la compu?»"}, sk_pc},
-    {{"platica", "Saludos, plática y chistes", "«Buenos días», «¿Cómo estás?», «Cuéntame un chiste»"}, sk_chat},
+    {{"platica", "Saludos, plática, chistes y emociones",
+      "«Buenos días», «¿Cómo estás?», «Cuéntame un chiste», «Muéstrame tus emociones»"},
+     sk_chat},
 };
 #define NSKILLS ((int)(sizeof SKILLS / sizeof *SKILLS))
 
@@ -1032,11 +1035,109 @@ static char *what_i_do(void)
     return sb_steal(&sb);
 }
 
+/* La muestra de emociones: una frase por emoción, en un orden que la cara
+   recorre rápido (de una a la de junto), y al final tranquila. */
+static const char DEMO_EMOTIONS[] =
+    "[afecto: alegría 1] ¡Así me pongo cuando algo sale bien! [afecto: temor 1] Así, cuando algo me asusta. "
+    "[afecto: furia 1] Así, cuando me enojo. [afecto: desagrado 1] Así, cuando algo me da asco. "
+    "[afecto: tristeza 1] Así, cuando me agüito. [afecto: neutral 1] Y así, tranquila.";
+static const char DEMO_GESTURES[] =
+    "[gesto: ojos felices] Así sonrío. [gesto: sorpresa] Así me sorprendo. [gesto: suspiro] Así suspiro. "
+    "[gesto: sonrojo] Así me sonrojo. [gesto: guiño] Y así te guiño.";
+
+static const struct {
+    const char *said;
+    AffectKind k;
+} SHOW_ONE[] = {
+    {"enojate", AFF_ANGER},          {"ponte enojada", AFF_ANGER},       {"muestrame como te enojas", AFF_ANGER},
+    {"haz cara de enojo", AFF_ANGER}, {"haz cara de enojada", AFF_ANGER}, {"muestrame tu enojo", AFF_ANGER},
+    {"alegrate", AFF_JOY},           {"ponte feliz", AFF_JOY},           {"ponte contenta", AFF_JOY},
+    {"haz cara de feliz", AFF_JOY},  {"muestrame tu alegria", AFF_JOY},  {"muestrame como te alegras", AFF_JOY},
+    {"aguitate", AFF_SADNESS},       {"ponte triste", AFF_SADNESS},      {"haz cara de triste", AFF_SADNESS},
+    {"muestrame tu tristeza", AFF_SADNESS}, {"muestrame como te pones triste", AFF_SADNESS},
+    {"asustate", AFF_FEAR},          {"ponte nerviosa", AFF_FEAR},       {"haz cara de miedo", AFF_FEAR},
+    {"muestrame tu miedo", AFF_FEAR}, {"muestrame como te asustas", AFF_FEAR},
+    {"haz cara de asco", AFF_DISGUST}, {"haz cara de fuchi", AFF_DISGUST}, {"muestrame tu asco", AFF_DISGUST},
+};
+static const char *const SHOW_LINE[AFF_COUNT] = {
+    [AFF_JOY] = "[afecto: alegría 1] ¡Así me pongo cuando algo me alegra!",
+    [AFF_SADNESS] = "[afecto: tristeza 1] Así me pongo cuando me agüito.",
+    [AFF_ANGER] = "[afecto: furia 1] ¡Grr! Así me enojo.",
+    [AFF_FEAR] = "[afecto: temor 1] ¡Ay! Así me asusto.",
+    [AFF_DISGUST] = "[afecto: desagrado 1] ¡Guácala! Así me da asco.",
+};
+static const struct {
+    const char *said;
+    AffectKind k;
+} ARE_YOU[] = {
+    {"estas triste", AFF_SADNESS}, {"estas aguitada", AFF_SADNESS}, {"estas feliz", AFF_JOY},
+    {"estas contenta", AFF_JOY},   {"estas alegre", AFF_JOY},       {"estas enojada", AFF_ANGER},
+    {"estas molesta", AFF_ANGER},  {"estas asustada", AFF_FEAR},    {"estas nerviosa", AFF_FEAR},
+    {"tienes miedo", AFF_FEAR},
+};
+
+/* Lo que oyó, como texto normalizado (para la vibra). */
+static char *heard_text(const Heard *h)
+{
+    StrBuf sb;
+    sb_init(&sb);
+    sb_append(&sb, "");
+    for (int i = 0; i < h->n; i++) sb_appendf(&sb, "%s%s", i ? " " : "", h->w[i]);
+    return sb_steal(&sb);
+}
+
 char *sk_chat(Heard *h, bool *end)
 {
     char *name = config_user_name(), *r = NULL;
-    if (sk_take(h, "cuentame un chiste") >= 0 || sk_take(h, "dime un chiste") >= 0 ||
-        sk_take(h, "otro chiste") >= 0 || sk_take(h, "echate un chiste") >= 0 || sk_take(h, "un chiste") >= 0) {
+    char *said = heard_text(h);
+    bool only_insult = vibe_only_insult(said);
+    free(said);
+    int show = -1, are_you = -1;
+    for (size_t i = 0; i < sizeof SHOW_ONE / sizeof *SHOW_ONE && show < 0; i++)
+        if (sk_take(h, SHOW_ONE[i].said) >= 0) show = (int)i;
+    for (size_t i = 0; i < sizeof ARE_YOU / sizeof *ARE_YOU && show < 0 && are_you < 0; i++)
+        if (sk_take(h, ARE_YOU[i].said) >= 0) are_you = (int)i;
+    if (only_insult) {
+        /* solo un insulto para ella: se agüita (la tristeza la pone la vibra) */
+        static const char *const HURT[] = {"Oye… eso me agüitó.", "Ay… eso dolió un poquito.",
+                                           "Está bien… trataré de hacerlo mejor.", "Mmm… no tenías que decirlo así."};
+        r = xstrdup(sk_pick(HURT, 4));
+    } else if (show >= 0) {
+        sk_take_any(h, " porfa por favor un poco tantito ");
+        if (sk_rest_is_filler(h)) r = xstrdup(SHOW_LINE[SHOW_ONE[show].k]);
+    } else if (are_you >= 0) {
+        sk_take_any(h, " tu ahorita hoy ");
+        if (sk_rest_is_filler(h)) {
+            AffectState st = affect_get();
+            r = vibe_am_i(&st, ARE_YOU[are_you].k);
+        }
+    } else if (sk_take(h, "muestrame tus emociones") >= 0 || sk_take(h, "muestrame todas tus emociones") >= 0 ||
+               sk_take(h, "ensename tus emociones") >= 0 || sk_take(h, "ensename todas tus emociones") >= 0 ||
+               sk_take(h, "muestrame tus caras") >= 0 || sk_take(h, "haz tus caras") >= 0 ||
+               sk_take(h, "muestrame todas tus caras") >= 0 || sk_take(h, "muestrame tus sentimientos") >= 0) {
+        sk_take_any(h, " porfa por favor todas ");
+        if (sk_rest_is_filler(h)) r = xstrdup(DEMO_EMOTIONS);
+    } else if (sk_take(h, "muestrame tus gestos") >= 0 || sk_take(h, "ensename tus gestos") >= 0 ||
+               sk_take(h, "haz tus gestos") >= 0 || sk_take(h, "muestrame todos tus gestos") >= 0) {
+        sk_take_any(h, " porfa por favor todos ");
+        if (sk_rest_is_filler(h)) r = xstrdup(DEMO_GESTURES);
+    } else if (sk_take(h, "tienes emociones") >= 0 || sk_take(h, "tienes sentimientos") >= 0 ||
+               sk_take(h, "sientes emociones") >= 0 || sk_take(h, "sientes algo") >= 0 ||
+               sk_take(h, "puedes sentir") >= 0 || sk_take(h, "tienes corazon") >= 0) {
+        sk_take_any(h, " tu de verdad en serio acaso sokari ");
+        /* sí, a su manera (sin explicar cómo funciona) */
+        if (sk_rest_is_filler(h))
+            r = xstrdup("[gesto: ojos felices] Sí, a mi manera. Hay cosas que me ponen contenta y otras que me agüitan.");
+    } else if (sk_take(h, "como van tus emociones") >= 0 || sk_take(h, "como estan tus emociones") >= 0 ||
+               sk_take(h, "como andan tus emociones") >= 0 || sk_take(h, "como va tu animo") >= 0 ||
+               sk_take(h, "como esta tu animo") >= 0 || sk_take(h, "que sientes") >= 0) {
+        sk_take_any(h, " ahorita hoy tu ");
+        if (sk_rest_is_filler(h)) {
+            AffectState st = affect_get();
+            r = vibe_how_i_feel(&st);
+        }
+    } else if (sk_take(h, "cuentame un chiste") >= 0 || sk_take(h, "dime un chiste") >= 0 ||
+               sk_take(h, "otro chiste") >= 0 || sk_take(h, "echate un chiste") >= 0 || sk_take(h, "un chiste") >= 0) {
         sk_take_any(h, " otro chiste bueno cuentame ");
         if (sk_rest_is_filler(h)) r = xstrdup(sk_pick(JOKES, (int)(sizeof JOKES / sizeof *JOKES)));
     } else if (sk_take(h, "quien eres") >= 0 || sk_take(h, "como te llamas") >= 0 || sk_take(h, "que eres") >= 0) {
@@ -1050,9 +1151,11 @@ char *sk_chat(Heard *h, bool *end)
                sk_take(h, "como amaneciste") >= 0 || sk_take(h, "que tal estas") >= 0 ||
                sk_take(h, "como te sientes") >= 0) {
         sk_take_any(h, " tu hoy ");
-        static const char *const FINE[] = {"¡Muy bien, gracias! ¿Y tú?", "¡Aquí, lista para ayudarte! ¿Y tú cómo estás?",
-                                           "¡Bien! ¿Qué tal tú?"};
-        if (sk_rest_is_filler(h)) r = xstrdup(sk_pick(FINE, 3));
+        /* como de veras está: en palabras, nunca números */
+        if (sk_rest_is_filler(h)) {
+            AffectState st = affect_get();
+            r = vibe_how_i_feel(&st);
+        }
     } else if (sk_take(h, "estas ahi") >= 0 || sk_take(h, "me escuchas") >= 0 || sk_take(h, "sigues ahi") >= 0 ||
                sk_take(h, "me oyes") >= 0) {
         if (sk_rest_is_filler(h)) r = xstrdup("Aquí estoy. ¿Qué necesitas?");

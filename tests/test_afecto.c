@@ -478,7 +478,10 @@ static void test_etiquetas(void)
     check(!strcmp(out, "Sí"), "sin dónde guardar las emociones, igual la quita");
     free(out);
     const char *p = affect_prompt();
-    check(strstr(p, "[afecto: alegría 0.6]") && strlen(p) < 520, "la instrucción para el modelo es corta y trae el ejemplo");
+    check(strstr(p, "[afecto: alegría 0.6]") && strlen(p) < 600, "la instrucción para el modelo es corta y trae el ejemplo");
+    /* antes decía «si nada destaca, neutral» y casi todo salía neutral */
+    check(!strstr(p, "nada destaca") && strstr(p, "Neutral solo para datos secos") && strstr(p, "insulto → tristeza"),
+          "y ya no invita a contestar todo en neutral: la emoción sale del tono de lo que dice");
 }
 
 /* ------------------------------------------------------------------ el global y la opción */

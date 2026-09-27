@@ -9,6 +9,7 @@ typedef struct Conversation Conversation;
 
 typedef struct {
     char *reply;     /* lo que hay que decir (heap), o NULL */
+    char *speech;    /* lo mismo con marcas de emoción por frase para la voz (heap), o NULL */
     bool keep_going; /* ¿sigue abierta la conversación? */
     bool shutdown;   /* se dijo la palabra de apagado */
 } TurnResult;

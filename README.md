@@ -84,17 +84,32 @@ Modos de pantalla:
 
 F11 solo funciona en Ventana y Minimizado, cuando la ventana tiene el foco. En los otros modos la esfera nunca toma el teclado, para que las teclas que manda Sokari lleguen a tu app. En esos modos cambias de modo desde la bandeja o la ventana de Inicio.
 
+**Interrumpirla:** en cualquier momento, mientras piensa o mientras habla, «Hey Sokari», Ctrl+Alt+J o un clic en la esfera la paran. Si te escuchó mal, ya no hace las acciones que faltaban ni dice la respuesta (lo que ya hizo no se deshace). Con «Hey Sokari» o el atajo te escucha de inmediato para la orden nueva; con un clic solo se calla.
+
+**Estilo:** en Pantalla, las 5 miniaturas se mueven; clic en una y la esfera la muestra al momento (Guardar la deja, Cancelar la regresa).
+
+**Desinstalar:** en Linux, clic derecho en el ícono de Sokari (apps o dock) → «Desinstalar Sokari»; en Windows, Configuración de Windows → Aplicaciones instaladas → Sokari → Desinstalar. También en Configuración → General. Pregunta si borra tus datos (configuración, memoria, notas y skills).
+
 **La cara (beta).** Tres estilos en Pantalla → Estilo: *solo ojos* (la de fábrica de Sokari), *ojos y boca* y *de puntos* (los puntos de la esfera forman la cara). Si tu configuración es de antes de que existiera la cara, pasa una vez a *solo ojos*; si después eliges el halo, se respeta.
 
 - La cara expresa el estado afectivo de Sokari: qué tan bien le va y con cuánta energía, como una mezcla de alegría, tristeza, furia, desagrado, temor y calma. El color de la esfera sigue esa mezcla. No son sentimientos de verdad y no deciden nada.
+- **Lo que dice se siente (la vibra).** La emoción sale de lo que contesta, frase por frase, y se le nota en la cara y en la voz:
+  - «Lo siento, no pude abrirlo» lo dice más bajito y lento, con un suspiro; el «¡listo!» de después, más arriba.
+  - Si la insultas («tienes culera voz») se agüita, y le dura unos minutos aunque cambies de tema. Si la halagas, se sonroja.
+  - Mientras dice algo, la emoción no se le va a media frase.
+  - Las respuestas sin IA (la hora, el clima, tus comandos) también llevan su emoción, sin gastar tokens.
+- **Su voz cambia con la emoción:** alegre, más rápida y aguda; triste, lenta, grave y bajita, con pausas largas; enojada, firme y más fuerte; con miedo, rápida y un poco temblorosa. Son cambios chicos (hasta 15 % de velocidad y 2 semitonos) y se hacen sobre el audio, así que suena igual en la voz de Windows, Piper o espeak-ng. En calma es tu voz tal cual.
 - Hace gestos por lo que pasa:
-  - asiente con un «gracias» o cuando algo sale bien, y niega cuando algo falla;
-  - guiña al saludar y ladea la cabeza con un «?» cuando te pide un «sí»;
-  - mira arriba mientras piensa y se inclina cuando te escucha;
+  - asiente con un «gracias» o cuando hace algo, rebota un poco cuando sale bien y niega cuando algo falla;
+  - guiña al saludar y al despedirse, y ladea la cabeza con un «?» cuando te pide un «sí»;
+  - mira de lado mientras busca en internet, arriba mientras piensa, y se inclina cuando te escucha;
+  - ojos felices «^ ^» con algo que le encanta, sorpresa con «!», suspiro cuando no pudo y sonrojo con un halago;
   - rebota, tiembla, se encoge, se infla o se aparta cuando cambia la emoción;
   - siempre respira y parpadea, y callada mira alrededor.
-- Los gestos siempre se notan «mucho». Los **símbolos** (lágrima, destellos, gota de sudor, «?», la marca de enojo y «…») se pueden apagar.
-- **Cuesta tokens:** con una cara, a la IA se le pide que marque la emoción de cada respuesta, unos 70 tokens más por pedido. Esa etiqueta se quita antes de hablar, así que nunca la oyes ni sale en los subtítulos. Con el halo o las líneas no se pide.
+- La diagonal en los ojos solo sale como ceja (furia, tristeza, temor): en calma, callada o hablando, los ojos van limpios.
+- Pregúntale «¿tienes emociones?», «¿cómo estás?» o «¿estás triste?»: contesta en palabras según cómo está, nunca con números. «Muéstrame tus emociones» (o «tus gestos», o «enójate») hace la muestra con la cara y la voz. Todo eso sin IA.
+- Los gestos siempre se notan «mucho». Los **símbolos** (lágrima, destellos, gota de sudor, «?», «!», la marca de enojo y «…») se pueden apagar.
+- **Cuesta tokens:** a la IA se le pide que marque la emoción de cada respuesta, unos 90 tokens más por pedido, con cualquier estilo (la voz también la usa). Esa etiqueta se quita antes de hablar, así que nunca la oyes ni sale en los subtítulos.
 
 La salida de audio elegida vale para la voz de Sokari y su tono. Si pusiste un sonido de activación propio (MP3 o WAV), ese sale por la salida predeterminada de Windows.
 

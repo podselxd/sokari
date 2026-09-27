@@ -122,6 +122,13 @@ typedef enum {
     AFF_CUE_FAIL,     /* algo falló */
     AFF_CUE_ERROR,    /* sin internet o sin cupo */
     AFF_CUE_AI,       /* la etiqueta de la IA */
+    AFF_CUE_HAPPY,    /* algo le alegró de veras (ojos felices) */
+    AFF_CUE_SURPRISE, /* ¡no manches! (sorpresa) */
+    AFF_CUE_SIGH,     /* lo siento, no pude (suspiro) */
+    AFF_CUE_BLUSH,    /* le echaste un piropo (sonrojo) */
+    AFF_CUE_SEARCH,   /* está buscando (mira de lado) */
+    AFF_CUE_GOODBYE,  /* se despide (guiño) */
+    AFF_CUE_SUCCESS,  /* algo salió bien (rebota un poco) */
 } AffectCue;
 
 /* ---- el motor, sin nada global (para probarlo con su propio reloj) ---- */
@@ -140,6 +147,8 @@ void affect_engine_stimulus(AffectEngine *e, double t, const AffectStimulus *s);
    objetivo casi completo. amount[k] de 0 a 1; neutral calma. */
 void affect_engine_emotions(AffectEngine *e, double t, const float amount[AFF_COUNT], const char *cause);
 void affect_engine_emotion(AffectEngine *e, double t, AffectKind k, float intensity, const char *cause);
+/* Que la emoción de ahora no se vaya todavía (mientras dice la frase). */
+void affect_engine_sustain(AffectEngine *e, double t, float seconds);
 /* Un resultado contra lo esperado: expected = probabilidad de que saliera
    bien (0..1). La sorpresa es |resultado - esperado|. */
 void affect_engine_outcome(AffectEngine *e, double t, float expected, bool ok, float importance, const char *cause);
@@ -168,16 +177,25 @@ void affect_emotions(const float amount[AFF_COUNT], const char *cause);
 void affect_outcome(float expected, bool ok, float importance, const char *cause);
 void affect_event(AffectEvent ev);
 void affect_tool(const char *name, bool ok);
+void affect_sustain(float seconds);
+/* Un gesto por lo que acaba de pasar (sin mover la emoción). */
+void affect_cue(AffectCue cue);
 AffectState affect_get(void);
 /* Lo último que pasó; *seq cambia cada vez (para no repetir el gesto). */
 AffectCue affect_last_cue(unsigned *seq);
 void affect_target(float *valence, float *arousal);
+/* La mezcla de emociones a la que va (la de lo que está diciendo). */
+void affect_target_weights(float weights[AFF_COUNT]);
 AffectMetrics affect_metrics(void);
 /* Guarda el ánimo (también lo hace sola cada 5 minutos si cambió). */
 void affect_save(void);
 
 const char *affect_name(AffectKind k); /* "alegría", "temor", … */
 void affect_reference(AffectKind k, float *valence, float *arousal);
+/* La mezcla (pesos que suman 1) en un punto (valencia, activación). */
+void affect_weights_at(float valence, float arousal, float weights[AFF_COUNT]);
+/* El punto al que llevan unas emociones con intensidad (como la etiqueta). */
+void affect_point(const float amount[AFF_COUNT], float *valence, float *arousal);
 
 /* La etiqueta de la IA: «[afecto: alegría 0.6]» (o dos emociones, o mal
    escrita, o cortada al final). Devuelve el texto sin ninguna etiqueta (heap;
@@ -185,7 +203,7 @@ void affect_reference(AffectKind k, float *valence, float *arousal);
    entendió y found cuántas; una cortada se quita pero no cuenta. Se aplican
    aparte (affect_emotions), cuando la respuesta sí se usa. */
 char *affect_take_tags(const char *reply, float amount[AFF_COUNT], int *found);
-/* La instrucción para el modelo cuando la cara está puesta. */
+/* La instrucción para el modelo: con qué emoción contesta (la cara y la voz). */
 const char *affect_prompt(void);
 
 #endif

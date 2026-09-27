@@ -65,6 +65,7 @@ typedef enum {
     SPHERE_SYM_QUESTION, /* «?» (duda) */
     SPHERE_SYM_ANGER,    /* la marca de enojo (furia) */
     SPHERE_SYM_DOTS,     /* «…» (pensando): size = cuántos puntos, de 0 a 3 */
+    SPHERE_SYM_EXCLAIM,  /* «!» (sorpresa) */
 } SphereSymbolKind;
 
 typedef struct {
@@ -89,6 +90,7 @@ typedef struct {
     float round;               /* 2 = óvalo, 4 = cuadrado redondeado (solo ojos) */
     float eye_dy;              /* más arriba (-) o más abajo (+) */
     float shade;               /* sombra en diagonal arriba afuera (preocupación), 0..1 */
+    float blush;               /* chapitas rosas en los cachetes (sonrojo), 0..1 */
     float blink[2];            /* 0 abierto, 1 cerrado (izquierdo, derecho) */
     float gaze_x, gaze_y;      /* hacia dónde ve */
     /* la boca */

@@ -35,6 +35,10 @@ typedef enum {
     FACE_G_BLINK2,    /* parpadeo doble */
     FACE_G_LOOK,      /* mira alrededor */
     FACE_G_WINK,      /* guiño al saludar */
+    FACE_G_HAPPY,     /* ojos felices «^ ^» */
+    FACE_G_SURPRISE,  /* sorpresa: ojos grandes, un saltito y «!» */
+    FACE_G_SIGH,      /* suspiro: toma aire, lo suelta y baja la mirada */
+    FACE_G_BLUSH,     /* sonrojo: chapitas y mirada de lado */
     FACE_G_COUNT
 } FaceGesture;
 
