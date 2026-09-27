@@ -47,6 +47,8 @@ void ui_set_display_mode(int mode);
    está oculta, se asoma y se va) con esa animación (SphereAnim). false: no
    hay esfera que mostrar (Minimizado, o Sokari sin iniciar). */
 bool ui_preview_appear(int anim);
+/* El estilo elegido en Configuración, sin guardar (-1: el de config.env). */
+void ui_preview_style(int style);
 /* Clic en la esfera: ¿cae en la esfera? (en pantalla completa o ventana, el
    círculo del centro; la esfera flotante es toda la ventana). Y ¿del botón
    abajo al botón arriba se movió tan poco que fue un clic y no arrastrar? */

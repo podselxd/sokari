@@ -15,6 +15,7 @@
 #include "memory.h"
 #include "resources.h"
 #include "ui.h"
+#include "uninstall.h"
 #include "update.h"
 #include "util.h"
 #include "voice.h"
@@ -81,11 +82,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     int argc = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     const wchar_t *simulate = NULL;
-    bool updated = false, from_autostart = false;
+    bool updated = false, from_autostart = false, uninstall = false;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--wait-for-pid") && i + 1 < argc) wait_for_pid(argv[++i]);
         else if (!wcscmp(argv[i], L"--simulate") && i + 1 < argc) simulate = argv[++i];
         else if (!wcscmp(argv[i], L"--updated")) updated = true;
+        else if (!wcscmp(argv[i], L"--desinstalar")) uninstall = true;
         else if (!wcscmp(argv[i], AUTOSTART_FLAG)) from_autostart = true;
     }
     if (simulate) AttachConsole(ATTACH_PARENT_PROCESS);
@@ -100,6 +102,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
         ensure_dir(g_paths.memory_dir);
     }
     log_init(g_paths.log_file);
+    if (uninstall) return uninstall_run();
 
     HANDLE mutex = NULL;
     if (!simulate) {
@@ -123,6 +126,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     if (simulate) return run_simulation(simulate);
 
     autostart_refresh();
+    uninstall_register();
     enable_dark_menus();
     AppConfig cfg = config_snapshot();
     speaker_set_device(cfg.output_name);

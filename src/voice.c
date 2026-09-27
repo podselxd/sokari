@@ -209,8 +209,12 @@ static int split_sentences(const char *text, char ***out)
     return n;
 }
 
+/* Cómo la pararon (mientras piensa o mientras habla). */
+typedef enum { STOP_NONE, STOP_CLICK, STOP_TRIGGER, STOP_WAKE } StopKind;
+
 typedef struct {
     bool allow_interrupt;
+    StopKind stop;
 } PlayCtx;
 
 static bool input_read_nowait(int16_t *f);
@@ -226,10 +230,12 @@ static bool play_cb(float level, void *ctx)
     if (!pc->allow_interrupt) return true;
     if (WaitForSingleObject(g_skip, 0) == WAIT_OBJECT_0) {
         log_msg("Callada con un clic en la esfera.");
+        pc->stop = STOP_CLICK;
         return false;
     }
     if (WaitForSingleObject(g_trigger, 0) == WAIT_OBJECT_0) {
         log_msg("Interrumpido con el atajo.");
+        pc->stop = STOP_TRIGGER;
         return false;
     }
     int16_t f[MIC_FRAME];
@@ -237,6 +243,7 @@ static bool play_cb(float level, void *ctx)
         if (g_ww && ww_process(g_ww, f) > config_wake_threshold()) {
             log_msg("Interrumpido: dijiste \"Hey Sokari\".");
             ww_reset(g_ww);
+            pc->stop = STOP_WAKE;
             return false;
         }
     }
@@ -246,14 +253,15 @@ static bool play_cb(float level, void *ctx)
 static void input_flush(void);
 
 /* Todo lo que dice se puede saltar (también «Sokari en línea», la prueba de
-   audio y la muestra de voz). */
-static void speak(const char *text)
+   audio y la muestra de voz). Devuelve cómo la pararon (STOP_NONE: lo dijo
+   todo). */
+static StopKind speak(const char *text)
 {
     const bool allow_interrupt = true;
-    if (str_is_blank(text)) return;
+    if (str_is_blank(text)) return STOP_NONE;
     if (app_get_state() == JV_THINKING && WaitForSingleObject(g_skip, 0) == WAIT_OBJECT_0) {
         log_msg("No lo digo: le diste clic a la esfera mientras pensaba («%s»).", text);
-        return;
+        return STOP_CLICK;
     }
     if (!g_sim_mode) sound_activation_stop();
     if (g_ww) ww_reset(g_ww);
@@ -276,7 +284,7 @@ static void speak(const char *text)
     WakeAllConditionVariable(&S.cv);
     LeaveCriticalSection(&S.lock);
 
-    PlayCtx ctx = {.allow_interrupt = allow_interrupt && !g_sim_mode};
+    PlayCtx ctx = {.allow_interrupt = allow_interrupt && !g_sim_mode, .stop = STOP_NONE};
     bool cut = false;
     for (;;) {
         EnterCriticalSection(&S.lock);
@@ -314,6 +322,7 @@ static void speak(const char *text)
     /* Si lo callaste con "Hey Sokari", lo que dices justo después es tu orden:
        no se tira. */
     if (!cut) input_flush();
+    return cut ? (ctx.stop != STOP_NONE ? ctx.stop : STOP_CLICK) : STOP_NONE;
 }
 
 /* -------------------------------------------------------------- entrada --- */
@@ -430,6 +439,94 @@ static int16_t *record_command(const int16_t *seed, int nseed, size_t *out_n)
 
 /* ------------------------------------------------------- conversación --- */
 
+/* ---- pensar sin dejar de oír: «Hey Sokari», el atajo o un clic la paran ---- */
+
+/* Lo que piensa (pasar tu voz a texto y el agente) va en otro hilo; este
+   sigue oyendo. Si la paras, ese hilo termina lo que tenía en curso (una
+   llamada a la IA no se puede cortar a la mitad), pero ya no hace ninguna
+   acción ni dice nada. El último en soltar el trabajo lo libera. */
+typedef struct {
+    int16_t *audio;
+    size_t n;
+    volatile LONG cancel, refs;
+    HANDLE done;
+    char *text;
+    GroqError err;
+    TurnResult r;
+    TurnStats ts;
+    uint64_t t_text, t_reply;
+} ThinkJob;
+
+static void think_job_release(ThinkJob *j)
+{
+    if (InterlockedDecrement(&j->refs)) return;
+    free(j->audio);
+    free(j->text);
+    groq_error_free(&j->err);
+    free(j->r.reply);
+    CloseHandle(j->done);
+    free(j);
+}
+
+static DWORD WINAPI think_thread(LPVOID arg)
+{
+    ThinkJob *j = arg;
+    j->text = groq_transcribe(j->audio, j->n, MIC_RATE, &j->err);
+    if (j->text && *j->text && !InterlockedCompareExchange(&j->cancel, 0, 0)) {
+        log_msg("Tú: %s", j->text);
+        app_subtitle(true, j->text);
+        j->t_text = GetTickCount64();
+        turn_stats_reset();
+        state_lock();
+        conv_set_cancel(g_conv, &j->cancel);
+        j->r = agent_process(g_conv, j->text);
+        conv_set_cancel(g_conv, NULL);
+        state_unlock();
+        j->ts = turn_stats_get();
+        j->t_reply = GetTickCount64();
+    }
+    SetEvent(j->done);
+    think_job_release(j);
+    return 0;
+}
+
+/* Espera a que termine de pensar sin dejar de oír. STOP_NONE: terminó. */
+static StopKind think_wait(ThinkJob *j)
+{
+    for (;;) {
+        if (WaitForSingleObject(j->done, 30) == WAIT_OBJECT_0) return STOP_NONE;
+        if (WaitForSingleObject(g_quit, 0) == WAIT_OBJECT_0) return STOP_CLICK;
+        if (WaitForSingleObject(g_skip, 0) == WAIT_OBJECT_0) {
+            log_msg("Callada con un clic en la esfera mientras pensaba.");
+            return STOP_CLICK;
+        }
+        if (WaitForSingleObject(g_trigger, 0) == WAIT_OBJECT_0) {
+            log_msg("Interrumpida con el atajo mientras pensaba.");
+            return STOP_TRIGGER;
+        }
+        if (g_sim_mode) continue; /* en las pruebas el audio simulado es la siguiente orden */
+        int16_t f[MIC_FRAME];
+        while (input_read_nowait(f)) {
+            if (g_ww && ww_process(g_ww, f) > config_wake_threshold()) {
+                log_msg("Interrumpida: dijiste \"Hey Sokari\" mientras pensaba.");
+                ww_reset(g_ww);
+                return STOP_WAKE;
+            }
+        }
+    }
+}
+
+/* La paraste con «Hey Sokari» o el atajo: te escucha ya para la orden nueva
+   (sin repetir el nombre). Con un clic solo se calla. */
+static bool after_stop(StopKind stop)
+{
+    if (stop == STOP_WAKE || stop == STOP_TRIGGER) {
+        if (!g_sim_mode) sound_activation();
+        return true;
+    }
+    return false;
+}
+
 static bool handle_turn(const int16_t *audio, size_t n)
 {
     if (n < (size_t)(MIC_RATE * 3 / 10)) return true;
@@ -440,32 +537,40 @@ static bool handle_turn(const int16_t *audio, size_t n)
     uint64_t t_quiet = GetTickCount64(); /* te acabas de callar */
     app_set_state(JV_THINKING);
     app_status("Escuchando lo que dijiste…");
-    GroqError err = {0};
-    char *text = groq_transcribe(audio, n, MIC_RATE, &err);
+    ThinkJob *j = xcalloc(1, sizeof *j);
+    j->audio = xmalloc(n * sizeof *audio);
+    memcpy(j->audio, audio, n * sizeof *audio);
+    j->n = n;
+    j->refs = 2;
+    j->done = CreateEventW(NULL, TRUE, FALSE, NULL);
+    HANDLE th = CreateThread(NULL, 0, think_thread, j, 0, NULL);
+    if (th) {
+        CloseHandle(th);
+    } else {
+        think_thread(j); /* sin hilo: se piensa aquí mismo */
+    }
+    StopKind stop = think_wait(j);
+    if (stop != STOP_NONE) {
+        InterlockedExchange(&j->cancel, 1);
+        app_status("");
+        think_job_release(j);
+        return after_stop(stop);
+    }
     app_status("");
-    if (!text) {
-        log_msg("Error transcribiendo: %s", err.detail ? err.detail : "?");
-        speak(err.status == GROQ_AUTH_ERROR ? "Tu API key de Groq no es válida. Revísala en Configuración."
-                                            : "No pude transcribir el audio.");
-        groq_error_free(&err);
+    if (!j->text) {
+        log_msg("Error transcribiendo: %s", j->err.detail ? j->err.detail : "?");
+        speak(j->err.status == GROQ_AUTH_ERROR ? "Tu API key de Groq no es válida. Revísala en Configuración."
+                                               : "No pude transcribir el audio.");
+        think_job_release(j);
         return true;
     }
-    groq_error_free(&err);
-    if (!*text) {
-        free(text);
+    if (!*j->text) {
+        think_job_release(j);
         return true;
     }
-    log_msg("Tú: %s", text);
-    app_subtitle(true, text);
-    uint64_t t_text = GetTickCount64();
-
-    turn_stats_reset();
-    state_lock();
-    TurnResult r = agent_process(g_conv, text);
-    state_unlock();
-    free(text);
-    uint64_t t_reply = GetTickCount64();
-    TurnStats ts = turn_stats_get();
+    TurnResult r = j->r;
+    TurnStats ts = j->ts;
+    uint64_t t_text = j->t_text, t_reply = j->t_reply;
     g_first_audio_at = 0;
     /* En la ventana: si esta respuesta gastó IA o salió de tu PC. */
     if (r.reply) {
@@ -474,8 +579,7 @@ static bool handle_turn(const int16_t *audio, size_t n)
         app_status(st);
         free(st);
     }
-    if (r.reply) speak(r.reply);
-    free(r.reply);
+    StopKind cut = r.reply ? speak(r.reply) : STOP_NONE;
     /* Dónde se va el tiempo de cada respuesta, para saber qué arreglar. */
     uint64_t t_audio = g_first_audio_at ? g_first_audio_at : t_reply;
     if (ts.calls)
@@ -486,11 +590,14 @@ static bool handle_turn(const int16_t *audio, size_t n)
     else
         log_msg("Tiempos: voz a texto %.1f s · sin IA · empezar a hablar %.1f s · total %.1f s desde que te callaste.",
                 (double)(t_text - t_quiet) / 1000, (double)(t_audio - t_reply) / 1000, (double)(t_audio - t_quiet) / 1000);
-    if (r.shutdown) {
+    bool shutdown = r.shutdown, keep = r.keep_going;
+    think_job_release(j);
+    if (shutdown) {
         app_request_quit();
         return false;
     }
-    return r.keep_going;
+    if (cut == STOP_WAKE || cut == STOP_TRIGGER) return after_stop(cut);
+    return keep;
 }
 
 /* "Hey Sokari abre Spotify" de corrido: si justo después del nombre sigues

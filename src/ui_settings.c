@@ -23,6 +23,8 @@
 #include "resources.h"
 #include "skills.h"
 #include "sounds.h"
+#include "sphere.h"
+#include "style_preview.h"
 #include "tts.h"
 #include "ui.h"
 #include "update.h"
@@ -58,6 +60,7 @@ typedef enum {
     W_DROPDOWN,
     W_LINK,
     W_BUTTON,
+    W_STYLES, /* las miniaturas de los estilos, en movimiento */
 } WType;
 
 enum {
@@ -69,7 +72,7 @@ enum {
     A_NONE, A_GROQ_LINK, A_RESET_PW, A_SHOW_API, A_SHOW_STOP, A_TAILSCALE, A_COPY_SECRET, A_OBSIDIAN, A_PICK_SOUND,
     A_CLEAR_SOUND, A_OPEN_FOLDER, A_CHECK_UPDATE, A_SAVE, A_CANCEL, A_START, A_GO_SETTINGS, A_MUTE, A_TEST_AUDIO,
     A_QUIT, A_MODE_CHANGED, A_OUTPUT_CHANGED, A_TEST_VOICE, A_FIREWALL, A_DETECT, A_DIAGNOSE, A_FULL_ACCESS,
-    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM, A_STYLE,
+    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM, A_STYLE, A_UNINSTALL,
     /* Por dispositivo de la lista: + su número. */
     A_DEV_PROBE = 200, A_DEV_REMOVE = 300,
     /* Por IA de respaldo (0 NVIDIA, 1 DeepSeek, 2 OpenRouter, 3 GLM): ver la key y dónde sacarla. */
@@ -137,6 +140,11 @@ static struct {
     HDC mem;
     HBITMAP bmp, old_bmp;
     int bw, bh;
+    /* Las miniaturas de Estilo: una por estilo, con su cuadro más reciente. */
+    StylePreview *thumb[SPHERE_STYLE_COUNT];
+    uint32_t *thumb_px[SPHERE_STYLE_COUNT];
+    int thumb_side, thumb_want;
+    ULONGLONG thumb_last;
 } S;
 
 static const int RESOLUTIONS[] = {0, 720, 1080, 1440, 2160};
@@ -153,8 +161,9 @@ static const wchar_t *const MODE_DESCS[DISPLAY_MODE_COUNT] = {
 };
 #define CARD_H 56
 #define CARD_GAP 6
-static const wchar_t *STYLE_LABELS[] = {L"Halo de puntos", L"Líneas (beta)", L"Cara: solo ojos (beta)",
-                                        L"Cara: ojos y boca (beta)", L"Cara: de puntos (beta)"};
+static const wchar_t *STYLE_LABELS[] = {L"Halo de puntos", L"Líneas", L"Solo ojos", L"Ojos y boca",
+                                        L"Cara de puntos"};
+#define THUMB_TIMER 7
 static const wchar_t *APPEAR_LABELS[] = {L"Materializarse", L"Deslizarse", L"Zoom", L"Ninguna"};
 static const wchar_t *END_LABELS[] = {L"Poco", L"Normal", L"Más"};
 
@@ -371,6 +380,55 @@ static int layout_button(int x, int y, int w, const wchar_t *t, int action, bool
     return y + dp(46);
 }
 
+/* Las miniaturas de los estilos: un renglón con las 5, en movimiento. */
+static int layout_styles(int x, int y, int w, int *value, int action)
+{
+    int cw = w / SPHERE_STYLE_COUNT;
+    int side = cw - dp(16);
+    if (side > dp(64)) side = dp(64);
+    S.thumb_want = side;
+    Widget *s = add(W_STYLES, (RECT){x, y, x + w, y + side + dp(30)});
+    s->value = value;
+    s->options = SPHERE_STYLE_COUNT;
+    s->labels = STYLE_LABELS;
+    s->action = action;
+    return y + side + dp(38);
+}
+
+static void thumbs_free(void)
+{
+    for (int i = 0; i < SPHERE_STYLE_COUNT; i++) {
+        style_preview_destroy(S.thumb[i]);
+        free(S.thumb_px[i]);
+        S.thumb[i] = NULL;
+        S.thumb_px[i] = NULL;
+    }
+    S.thumb_side = 0;
+}
+
+/* Un cuadro más de cada miniatura (cada ~40 ms, con Pantalla a la vista). */
+static void thumbs_step(void)
+{
+    if (S.thumb_want <= 0) return;
+    if (S.thumb_side != S.thumb_want) {
+        thumbs_free();
+        for (int i = 0; i < SPHERE_STYLE_COUNT; i++) {
+            S.thumb[i] = style_preview_create((SphereStyle)i, S.thumb_want, (unsigned)i + 1);
+            int n = style_preview_size(S.thumb[i]);
+            S.thumb_px[i] = xcalloc((size_t)n * n, sizeof(uint32_t));
+        }
+        S.thumb_side = S.thumb_want;
+        S.thumb_last = 0;
+    }
+    ULONGLONG now = GetTickCount64();
+    double dt = S.thumb_last ? (double)(now - S.thumb_last) / 1000.0 : 0;
+    S.thumb_last = now;
+    for (int i = 0; i < SPHERE_STYLE_COUNT; i++) {
+        int n = style_preview_size(S.thumb[i]);
+        style_preview_frame(S.thumb[i], dt, S.face_symbols != 0, S.thumb_px[i], n);
+    }
+}
+
 static const wchar_t **g_voice_labels;
 static const wchar_t **g_mic_labels;
 static const wchar_t **g_output_labels;
@@ -459,6 +517,7 @@ static void layout_home(int x, int y, int w)
 static void layout(void)
 {
     S.nwidgets = 0;
+    S.thumb_want = 0;
     for (int i = 0; i < F_EDIT_COUNT; i++) ShowWindow(S.edits[i], SW_HIDE);
     RECT cr;
     GetClientRect(S.hwnd, &cr);
@@ -518,15 +577,16 @@ static void layout(void)
             if (compact) y = layout_help(x, y, w, MODE_DESCS[S.display_mode]) + dp(2);
             y = layout_label(x, y, w, L"Resolución de la esfera");
             y = layout_segment(x, y, w, &S.resolution_index, RES_LABELS, 5);
-            /* Estilo y animación en un solo renglón: con 1366×768 todo tiene
-               que caber arriba de Guardar. */
+            /* Estilo: las 5 miniaturas en movimiento; clic en una y la
+               esfera de verdad la muestra (sin guardar). */
             bool face = S.style >= 2;
-            int sw = w * 2 / 5, ax = x + sw + dp(16), aw = x + w - ax;
-            layout_label(x, y, sw, L"Estilo");
-            y = layout_label(ax, y, aw, L"Al aparecer y desaparecer");
-            layout_dropdown(x, y, sw, &S.style, STYLE_LABELS, 5, A_STYLE);
+            y = layout_label(x, y, w, L"Estilo");
+            y = layout_styles(x, y, w, &S.style, A_STYLE);
+            /* Probar va junto a la animación: prueba cómo entra y sale, con el
+               estilo elegido arriba aunque no esté guardado. */
+            y = layout_label(x, y, w, L"Al aparecer y desaparecer");
             layout_button(x + w - dp(96), y + dp(2), dp(96), L"Probar", A_TEST_ANIM, false);
-            y = layout_dropdown(ax, y, aw - dp(108), &S.appear, APPEAR_LABELS, 4, A_NONE);
+            y = layout_dropdown(x, y, w - dp(108), &S.appear, APPEAR_LABELS, 4, A_NONE);
             if (face) y = layout_toggle(x, y, w, &S.face_symbols, L"Símbolos en la cara (lágrima, destellos, «?»…)");
             y = layout_toggle(x, y, w, &S.subtitles, L"Mostrar subtítulos de lo que dices y lo que responde");
             y = layout_toggle(x, y, w, &S.show_only_talking, L"Aparecer solo cuando le hablas (y esconderse al terminar)");
@@ -572,6 +632,8 @@ static void layout(void)
             free(ob);
             y += dp(50);
         }
+        layout_button(x, y, dp(190), L"Desinstalar Sokari…", A_UNINSTALL, false);
+        y += dp(50);
         y = layout_toggle(x, y, w, &S.full_access, L"Acceso completo (menos borrar)");
         y = layout_help(x, y - dp(8), w,
                         L"Prendido, hace todo sin preguntarte: mover archivos, mandar mensajes, subir archivos, "
@@ -675,6 +737,13 @@ static void layout(void)
        parar ahí sin que lo notes). */
     HWND f = GetFocus();
     if (f && GetParent(f) == S.hwnd && !IsWindowVisible(f)) SetFocus(S.hwnd);
+    /* Las miniaturas se mueven solo con Pantalla a la vista. */
+    if (S.thumb_want) {
+        thumbs_step();
+        SetTimer(S.hwnd, THUMB_TIMER, 40, NULL);
+    } else {
+        KillTimer(S.hwnd, THUMB_TIMER);
+    }
     InvalidateRect(S.hwnd, NULL, FALSE);
 }
 
@@ -768,6 +837,38 @@ static void paint_widget(Widget *wd, int index)
         circle((float)(on ? pill.right - dp(12) : pill.left + dp(12)), (float)cy, (float)dp(9), RGB(255, 255, 255));
         RECT t = {r.left, r.top, r.right - dp(60), r.bottom};
         text(wd->text, t, S.f_body, C_TEXT, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        break;
+    }
+    case W_STYLES: {
+        int cw = (r.right - r.left) / wd->options;
+        for (int i = 0; i < wd->options; i++) {
+            RECT c = {r.left + i * cw + dp(2), r.top, r.left + (i + 1) * cw - dp(2), r.bottom};
+            bool sel = *wd->value == i;
+            if (sel) {
+                round_rect(c, (float)dp(12), C_NAV_SEL, C_NAV_SEL, 0);
+                round_rect(c, (float)dp(12), C_ACCENT, C_ACCENT, 2.0f);
+            }
+            GdiFlush();
+            /* El cuadro de la miniatura, con las esquinas redondeadas. */
+            if (S.thumb_px[i] && S.px) {
+                int n = style_preview_size(S.thumb[i]), side = S.thumb_side < n ? S.thumb_side : n;
+                int x0 = c.left + ((c.right - c.left) - side) / 2, y0 = c.top + dp(6), rad = dp(8);
+                for (int yy = 0; yy < side; yy++) {
+                    int py = y0 + yy;
+                    if (py < 0 || py >= S.bh) continue;
+                    for (int xx = 0; xx < side; xx++) {
+                        int px = x0 + xx;
+                        if (px < 0 || px >= S.bw) continue;
+                        int dx = xx < rad ? rad - xx : xx >= side - rad ? xx - (side - rad - 1) : 0;
+                        int dy = yy < rad ? rad - yy : yy >= side - rad ? yy - (side - rad - 1) : 0;
+                        if (dx && dy && dx * dx + dy * dy > rad * rad) continue;
+                        S.px[(size_t)py * S.bw + px] = S.thumb_px[i][(size_t)yy * n + xx] | 0xFF000000u;
+                    }
+                }
+            }
+            RECT t = {c.left, r.bottom - dp(24), c.right, r.bottom - dp(4)};
+            text(wd->labels[i], t, S.f_small, sel ? C_TEXT : C_MUTED, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        }
         break;
     }
     case W_DROPDOWN: {
@@ -1387,10 +1488,18 @@ static void do_action(int action)
     case A_CHECK_UPDATE:
         run_async(A_CHECK_UPDATE, L"Buscando actualizaciones…");
         break;
+    case A_UNINSTALL: {
+        /* Lo hace otro Sokari («--desinstalar»): pregunta y cierra a este. */
+        wchar_t *exe = exe_path();
+        ShellExecuteW(S.hwnd, L"open", exe, L"--desinstalar", NULL, SW_SHOWNORMAL);
+        free(exe);
+        break;
+    }
     case A_SAVE:
         save();
         break;
     case A_CANCEL:
+        ui_preview_style(-1);
         if (S.home_mode) {
             load_values();
             S.section = SEC_HOME;
@@ -1425,6 +1534,7 @@ static void do_action(int action)
         break;
     }
     case A_STYLE:
+        ui_preview_style(S.style); /* la esfera de verdad lo muestra ya, sin guardar */
         layout(); /* con cara aparecen sus opciones */
         if (S.style >= 2)
             set_status(L"La cara (beta) expresa el estado de Sokari, no sentimientos. Le pide a la IA la emoción de "
@@ -1515,6 +1625,15 @@ static void click(int i, int x, int y)
                 layout(); /* compactas: debajo va la descripción del modo elegido */
                 return;
             }
+        }
+        break;
+    }
+    case W_STYLES: {
+        int idx = (x - w->r.left) / ((w->r.right - w->r.left) / w->options);
+        if (idx >= 0 && idx < w->options && idx != *w->value) {
+            *w->value = idx;
+            do_action(w->action); /* vuelve a armar la ventana: w ya no sirve */
+            return;
         }
         break;
     }
@@ -1708,6 +1827,14 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         free(job);
         return 0;
     }
+    case WM_TIMER:
+        if (w == THUMB_TIMER) {
+            thumbs_step();
+            for (int i = 0; i < S.nwidgets; i++)
+                if (S.widgets[i].type == W_STYLES) InvalidateRect(h, &S.widgets[i].r, FALSE);
+            return 0;
+        }
+        break;
     case WM_CLOSE:
         if (S.first_run &&
             MessageBoxW(h, L"Sin una API key de Groq, Sokari no puede funcionar. ¿Cerrar Sokari?", L"Sokari",
@@ -1717,6 +1844,9 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         return 0;
     case WM_DESTROY: {
         bool quit = S.quit_on_close;
+        KillTimer(h, THUMB_TIMER);
+        thumbs_free();
+        ui_preview_style(-1); /* guardado o no, la esfera vuelve a lo de config.env */
         for (int i = 0; i < F_EDIT_COUNT; i++) S.edits[i] = NULL;
         if (S.mem) {
             SelectObject(S.mem, S.old_bmp);

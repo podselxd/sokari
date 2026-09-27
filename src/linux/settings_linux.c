@@ -22,6 +22,7 @@
 #include "mesh.h"
 #include "skills.h"
 #include "sphere.h"
+#include "style_preview.h"
 #include "tts.h"
 #include "update.h"
 #include "util.h"
@@ -50,7 +51,8 @@ typedef struct {
     /* Cuenta */
     GtkWidget *key, *name, *profile_pw, *stop;
     /* Pantalla */
-    GtkWidget *mode, *mode_help, *only_talking, *style, *anim, *subtitles, *face_symbols;
+    GtkWidget *mode, *mode_help, *only_talking, *styles, *anim, *subtitles, *face_symbols;
+    int style; /* el estilo elegido en las miniaturas */
     /* Voz y audio */
     GtkWidget *volume, *voice, *mic, *out, *sensitivity, *end_silence, *duck;
     TtsVoice *voices;
@@ -368,11 +370,116 @@ static void on_anim_changed(GtkComboBox *c, gpointer button)
     gtk_widget_set_sensitive(GTK_WIDGET(button), gtk_combo_box_get_active(c) < SPHERE_ANIM_NONE);
 }
 
-/* Los símbolos solo cuentan con una cara. */
-static void on_style_changed(GtkComboBox *c, gpointer data)
+/* ---- Estilo: las miniaturas en movimiento (clic = la esfera ya lo muestra) ---- */
+
+static const char *const STYLE_NAMES[SPHERE_STYLE_COUNT] = {"Halo de puntos", "Líneas", "Solo ojos", "Ojos y boca",
+                                                            "Cara de puntos"};
+
+typedef struct {
+    Form *f;
+    int style, px;
+    StylePreview *p;
+    cairo_surface_t *surf;
+    gint64 last_us;
+} Thumb;
+
+static void thumb_free(GtkWidget *w, gpointer u)
+{
+    Thumb *t = u;
+    style_preview_destroy(t->p);
+    if (t->surf) cairo_surface_destroy(t->surf);
+    free(t);
+}
+
+static gboolean on_thumb_tick(GtkWidget *w, GdkFrameClock *clock, gpointer u)
+{
+    Thumb *t = u;
+    gint64 now = gdk_frame_clock_get_frame_time(clock);
+    double dt = t->last_us ? (double)(now - t->last_us) / 1e6 : 0;
+    if (t->last_us && dt < 1.0 / 30) return G_SOURCE_CONTINUE; /* ~30 cuadros por segundo alcanzan */
+    t->last_us = now;
+    int scale = gtk_widget_get_scale_factor(w);
+    int W = gtk_widget_get_allocated_width(w), H = gtk_widget_get_allocated_height(w);
+    int px = (W < H ? W : H) * scale;
+    if (px < 16) return G_SOURCE_CONTINUE;
+    if (!t->p || px != t->px) {
+        style_preview_destroy(t->p);
+        if (t->surf) cairo_surface_destroy(t->surf);
+        t->p = style_preview_create((SphereStyle)t->style, px, (unsigned)t->style + 1);
+        int side = style_preview_size(t->p);
+        t->surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, side, side);
+        cairo_surface_set_device_scale(t->surf, scale, scale);
+        t->px = px;
+    }
+    bool symbols = t->f->face_symbols && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(t->f->face_symbols));
+    cairo_surface_flush(t->surf);
+    style_preview_frame(t->p, dt, symbols, (uint32_t *)cairo_image_surface_get_data(t->surf),
+                        cairo_image_surface_get_stride(t->surf) / 4);
+    cairo_surface_mark_dirty(t->surf);
+    gtk_widget_queue_draw(w);
+    return G_SOURCE_CONTINUE;
+}
+
+static gboolean on_thumb_draw(GtkWidget *w, cairo_t *cr, gpointer u)
+{
+    Thumb *t = u;
+    if (!t->surf) return FALSE;
+    int W = gtk_widget_get_allocated_width(w), H = gtk_widget_get_allocated_height(w);
+    double side = cairo_image_surface_get_width(t->surf) / (double)(t->px ? t->px : 1) * (W < H ? W : H);
+    double x = (W - side) / 2, y = (H - side) / 2, rad = 10;
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, x + side - rad, y + rad, rad, -G_PI / 2, 0);
+    cairo_arc(cr, x + side - rad, y + side - rad, rad, 0, G_PI / 2);
+    cairo_arc(cr, x + rad, y + side - rad, rad, G_PI / 2, G_PI);
+    cairo_arc(cr, x + rad, y + rad, rad, G_PI, 3 * G_PI / 2);
+    cairo_close_path(cr);
+    cairo_clip(cr);
+    cairo_set_source_surface(cr, t->surf, x, y);
+    cairo_paint(cr);
+    return FALSE;
+}
+
+/* Elegir una: la esfera de verdad la muestra ya (sin guardar; Cancelar la
+   regresa). Los símbolos solo cuentan con una cara. */
+static void on_style_picked(GtkFlowBox *box, gpointer data)
 {
     Form *f = data;
-    gtk_widget_set_sensitive(f->face_symbols, gtk_combo_box_get_active(c) >= SPHERE_STYLE_FACE_EYES);
+    GList *sel = gtk_flow_box_get_selected_children(box);
+    if (sel) f->style = gtk_flow_box_child_get_index(sel->data);
+    g_list_free(sel);
+    if (f->face_symbols) gtk_widget_set_sensitive(f->face_symbols, f->style >= SPHERE_STYLE_FACE_EYES);
+    ui_linux_preview_style(f->style);
+}
+
+static GtkWidget *style_thumbs(Form *f, int style)
+{
+    GtkWidget *flow = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(flow), GTK_SELECTION_SINGLE);
+    gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(flow), TRUE);
+    gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(flow), SPHERE_STYLE_COUNT);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(flow), SPHERE_STYLE_COUNT);
+    gtk_flow_box_set_activate_on_single_click(GTK_FLOW_BOX(flow), TRUE);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(flow), 4);
+    for (int i = 0; i < SPHERE_STYLE_COUNT; i++) {
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+        GtkWidget *area = gtk_drawing_area_new();
+        gtk_widget_set_size_request(area, 80, 80);
+        Thumb *t = xcalloc(1, sizeof *t);
+        t->f = f;
+        t->style = i;
+        g_signal_connect(area, "draw", G_CALLBACK(on_thumb_draw), t);
+        g_signal_connect(area, "destroy", G_CALLBACK(thumb_free), t);
+        gtk_widget_add_tick_callback(area, on_thumb_tick, t, NULL);
+        gtk_box_pack_start(GTK_BOX(box), area, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(box), gtk_label_new(STYLE_NAMES[i]), FALSE, FALSE, 0);
+        gtk_widget_set_tooltip_text(box, i >= SPHERE_STYLE_FACE_EYES ? "Cara (beta): la IA agrega la emoción de cada "
+                                                                       "respuesta (unos 70 tokens más)"
+                                                                     : NULL);
+        gtk_container_add(GTK_CONTAINER(flow), box);
+    }
+    f->style = style;
+    gtk_flow_box_select_child(GTK_FLOW_BOX(flow), gtk_flow_box_get_child_at_index(GTK_FLOW_BOX(flow), style));
+    return flow;
 }
 
 /* Los modos de pantalla, los mismos que en Windows. */
@@ -405,15 +512,20 @@ static GtkWidget *page_display(Form *f, const AppConfig *cfg)
     g_signal_connect(f->mode, "changed", G_CALLBACK(on_mode_changed), f);
     f->only_talking =
         add_wide(g, r++, check("Aparecer solo cuando le hablas (y esconderse al terminar)", cfg->show_only_talking));
-    static const char *const STYLES[SPHERE_STYLE_COUNT] = {"Halo de puntos", "Líneas (beta)", "Cara: solo ojos (beta)",
-                                                           "Cara: ojos y boca (beta)", "Cara: de puntos (beta)"};
     int style = cfg->sphere_style >= 0 && cfg->sphere_style < SPHERE_STYLE_COUNT ? cfg->sphere_style : 0;
-    f->style = add_row(g, r++, "Estilo", choice(STYLES, SPHERE_STYLE_COUNT, style));
+    GtkWidget *style_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    GtkWidget *style_label = gtk_label_new("Estilo");
+    gtk_label_set_xalign(GTK_LABEL(style_label), 0);
+    f->styles = style_thumbs(f, style);
+    gtk_box_pack_start(GTK_BOX(style_box), style_label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(style_box), f->styles, FALSE, FALSE, 0);
+    add_wide(g, r++, style_box);
     f->face_symbols = add_wide(g, r++, check("Símbolos en la cara (lágrima, destellos, «?»…)", cfg->face_symbols));
-    add_wide(g, r++, help_label("La cara expresa el estado de Sokari, no sentimientos. Con cara, le pide a la IA una "
-                                "etiqueta con la emoción de cada respuesta (unos 70 tokens más)."));
-    g_signal_connect(f->style, "changed", G_CALLBACK(on_style_changed), f);
-    on_style_changed(GTK_COMBO_BOX(f->style), f);
+    gtk_widget_set_sensitive(f->face_symbols, style >= SPHERE_STYLE_FACE_EYES);
+    add_wide(g, r++, help_label("Clic en un estilo y la esfera lo muestra (Guardar lo deja). La cara expresa el "
+                                "estado de Sokari, no sentimientos: le pide a la IA una etiqueta con la emoción de "
+                                "cada respuesta (unos 70 tokens más)."));
+    g_signal_connect(f->styles, "selected-children-changed", G_CALLBACK(on_style_picked), f);
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     f->anim = choice(APPEAR_NAMES, SPHERE_ANIM_COUNT, cfg->appear_anim);
     GtkWidget *try_anim = gtk_button_new_with_label("Probar");
@@ -579,6 +691,15 @@ static void on_open_folder(GtkButton *b, gpointer u)
     open_path(g_paths.local_dir);
 }
 
+/* Lo hace otro Sokari («--desinstalar»): pregunta y cierra a este. */
+static void on_uninstall(GtkButton *b, gpointer u)
+{
+    char *self = linux_self_command();
+    char *argv[] = {self, "--desinstalar", NULL};
+    g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
+    free(self);
+}
+
 static void on_check_update(GtkButton *b, gpointer u)
 {
     run_job(u, JOB_UPDATE, NULL, NULL, "Buscando actualizaciones…");
@@ -605,6 +726,7 @@ static GtkWidget *page_general(Form *f, const AppConfig *cfg)
     row = button_row();
     add_button(row, "Abrir carpeta de Sokari", G_CALLBACK(on_open_folder), f);
     f->update = add_button(row, LINUX_UPDATE_LABEL, G_CALLBACK(on_check_update), f);
+    add_button(row, "Desinstalar Sokari…", G_CALLBACK(on_uninstall), f);
     gtk_widget_set_margin_top(row, 8);
     add_wide(g, r++, row);
     return g;
@@ -890,8 +1012,7 @@ static bool save(Form *f)
         set_str(backup[k], entry_text(f->backup[k]));
     }
     set_str(&cfg.ai_order, config_clean_ai_order(gtk_entry_get_text(GTK_ENTRY(f->order))));
-    int style = gtk_combo_box_get_active(GTK_COMBO_BOX(f->style));
-    cfg.sphere_style = style >= 0 && style < SPHERE_STYLE_COUNT ? style : 0;
+    cfg.sphere_style = f->style >= 0 && f->style < SPHERE_STYLE_COUNT ? f->style : 0;
     cfg.face_symbols = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->face_symbols));
     int anim = gtk_combo_box_get_active(GTK_COMBO_BOX(f->anim));
     cfg.appear_anim = anim >= 0 && anim < SPHERE_ANIM_COUNT ? anim : 0;
