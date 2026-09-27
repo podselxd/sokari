@@ -21,6 +21,8 @@ typedef enum {
 /* La abre en esa sección (o, si ya está abierta, la trae al frente ahí).
    first_run: la primera vez, sin API key; arriba dice qué falta. */
 void settings_linux_open(GtkWindow *parent, bool first_run, SettingsPage page);
+/* ¿Está abierta? (mientras, la ventana de Sokari no se esconde sola) */
+bool settings_linux_is_open(void);
 
 /* Lo que la Configuración le pide a la ventana de Sokari (ui_linux.c):
    Probar la animación de entrar y salir, aplicar lo que se guardó, y avisar

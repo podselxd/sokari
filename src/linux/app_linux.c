@@ -61,6 +61,7 @@ bool app_is_own_window(HWND h)
    pides. Las ventanas de Sokari nunca salen en la lista de GNOME. */
 void app_yield_focus(void)
 {
+    if (ui_active()) ui_post_yield();
     if (!ui_active() || !ui_own_window_active()) return;
     GnomeWindow *w;
     int n;

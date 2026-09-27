@@ -29,7 +29,7 @@ Ubuntu 24.04 o más nuevo, o Fedora 44, con GNOME. **Es beta:** está probado en
 3. Cierra sesión y vuelve a entrar **una vez**. Así GNOME carga la extensión de Sokari, la que le deja ver tus ventanas y oprimir teclas. `sokari --revisar-gnome` te dice si ya funciona.
 4. Abre **Sokari** desde tus apps. La primera vez te pide tu API key de Groq, igual que en Windows.
 
-Su **Configuración** tiene las mismas secciones que la de Windows: Cuenta, Pantalla, Voz y audio, General, Skills, Tus PCs e IA de respaldo. Todavía faltan en Linux los modos de pantalla (pantalla completa, esfera flotante…), «Aparecer solo cuando le hablas» y la ventana de Inicio; **Detectar mis PCs** solo encuentra PCs con Windows (las de Linux se registran diciéndole «registra mi laptop en 100.x.y.z»).
+Su **Configuración** tiene las mismas secciones que la de Windows: Cuenta, Pantalla, Voz y audio, General, Skills, Tus PCs e IA de respaldo. En Linux, **la de fábrica es la esfera flotante**: solo la esfera, transparente y encima de todo; la arrastras a donde quieras y con clic derecho abres el menú. En Pantalla también están los otros modos (pantalla completa, ventana, minimizado) y «Aparecer solo cuando le hablas». En GNOME con Wayland, que la esfera quede encima de todo y regrese a donde la dejaste lo hace la extensión de Sokari: la primera vez, cierra sesión y vuelve a entrar para que GNOME la cargue. Todavía falta en Linux la ventana de Inicio; **Detectar mis PCs** solo encuentra PCs con Windows (las de Linux se registran diciéndole «registra mi laptop en 100.x.y.z»).
 
 No se actualiza solo, porque instalar pide tu contraseña: te avisa cuando sale una versión nueva, y en su menú **Buscar actualización** (o `sokari --actualizar`) la baja, comprueba su huella SHA-256 y la instala. Para quitarlo: `sudo apt remove sokari` o `sudo dnf remove sokari` (tu configuración y tu memoria se quedan en `~/.config/sokari` y `~/.local/share/sokari`).
 
@@ -48,7 +48,7 @@ No se actualiza solo, porque instalar pide tu contraseña: te avisa cuando sale 
 - Para callarla mientras habla: di **"Hey Sokari"**, aprieta **Ctrl+Alt+J** o dale **un clic a la esfera**. Todo lo que dice se puede saltar, también las explicaciones largas. Si le das clic mientras piensa, no dice la respuesta (lo que ya hizo no se deshace). Con ella quieta, un clic no hace nada, y si arrastras la esfera flotante, no cuenta como clic. Otros ruidos no la interrumpen.
 - Para cerrar la conversación dile "adiós", "ya vete" o "eso es todo". También termina cuando Sokari se despide o si dejas de hablarle. Si configuraste una palabra de apagado y la dices, Sokari se cierra al instante.
 - Con **Aparecer solo cuando le hablas** (Configuración → Pantalla, prendida de fábrica), la esfera aparece en tu modo de pantalla al hablarle y se esconde al terminar. Al abrir Sokari se ve y se queda hasta tu primera conversación.
-- **Al aparecer y desaparecer** (Configuración → Pantalla), la esfera se anima: **Materializarse** (de fábrica: llega en pedazos y se junta; al irse se dispersa), **Deslizarse** (sube desde abajo de la pantalla y baja al irse), **Zoom** (crece desde un punto y se encoge) o **Ninguna**. Entra en 1 segundo y sale en 0.8. **Probar** te la muestra sin guardar. En Minimizado no hay animación; en Linux se anima al abrir y al cerrar la ventana.
+- **Al aparecer y desaparecer** (Configuración → Pantalla), la esfera se anima: **Materializarse** (de fábrica: llega en pedazos y se junta; al irse se dispersa), **Deslizarse** (sube desde abajo de la pantalla y baja al irse), **Zoom** (crece desde un punto y se encoge) o **Ninguna**. Entra en 1 segundo y sale en 0.8. **Probar** te la muestra sin guardar. En Minimizado no hay animación.
 
 Menú del ícono de la bandeja (clic derecho): **Hablar con Sokari**, **Ocultar/Mostrar la esfera**, **Modo de pantalla**, **Silenciar micrófono**, **Acceso completo (menos borrar)**, **Ventana de inicio…**, **⚙ Configuración…**, **Abrir carpeta de Sokari** y **Salir**.
 
@@ -76,9 +76,9 @@ Sale al abrir `Sokari.exe` a mano, o desde **Ventana de inicio…** en la bandej
 
 Modos de pantalla:
 
-- **Pantalla completa** (la de fábrica): siempre encima de todo. Se aparta sola cuando Sokari abre algo.
+- **Pantalla completa** (la de fábrica en Windows): siempre encima de todo. Se aparta sola cuando Sokari abre algo.
 - **Pantalla completa sin bordes:** ocupa la pantalla, pero tus ventanas pueden ir encima. Pasa al frente cuando le hablas.
-- **Esfera flotante:** una esfera transparente que puedes arrastrar a donde quieras.
+- **Esfera flotante** (la de fábrica en Linux): una esfera transparente que puedes arrastrar a donde quieras. En Linux, clic derecho abre el menú.
 - **Ventana:** una ventana normal que puedes mover, agrandar o minimizar. **F11** (o doble clic) la pone en pantalla completa y **F11** o **Esc** la regresan. La X la oculta, pero Sokari sigue escuchando.
 - **Minimizado:** igual que Ventana, pero arranca minimizada en la barra de tareas y no se asoma cuando le hablas.
 

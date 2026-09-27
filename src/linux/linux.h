@@ -39,6 +39,8 @@ void ui_post_notify(const char *title, const char *text);
 void ui_post_notify_button(const char *id, const char *title, const char *text, const char *button,
                            const char *action);
 void ui_post_quit(void);
+/* Sokari va a abrir o usar otra ventana (en pantalla completa se aparta). */
+void ui_post_yield(void);
 /* Para las pruebas (necesita pantalla): qué falla en la barra de la ventana, o NULL. */
 char *ui_window_problems(void);
 
