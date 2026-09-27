@@ -35,6 +35,8 @@ void ui_post_subtitle(bool from_user, const char *text);
 void ui_post_status(const char *text);
 void ui_post_notify(const char *title, const char *text);
 void ui_post_quit(void);
+/* Para las pruebas (necesita pantalla): qué falla en la barra de la ventana, o NULL. */
+char *ui_window_problems(void);
 
 /* autostart_linux.c: cómo se llama a este Sokari ("sokari" o su ruta, heap)
    y el atajo Ctrl+Alt+J de GNOME (false si no se pudo o no es GNOME). */
