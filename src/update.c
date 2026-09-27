@@ -13,6 +13,7 @@
 
 #include "app.h"
 #include "config.h"
+#include "github.h"
 #include "http.h"
 #include "log.h"
 #include "third_party/cJSON.h"
@@ -97,36 +98,18 @@ static void release_free(Release *r)
     memset(r, 0, sizeof *r);
 }
 
+/* La última versión y su Sokari.exe: por la API de GitHub o, si no deja (403),
+   por la página del release (ver github.h). */
 static bool fetch_latest(Release *out, char **error)
 {
     memset(out, 0, sizeof *out);
-    HttpRequest req = {.method = "GET",
-                       .url = "https://api.github.com/repos/" GITHUB_REPO "/releases/latest",
-                       .headers = "Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n",
-                       .timeout_ms = 20000};
-    HttpResponse r = http_request(&req);
-    if (r.status != 200) {
-        *error = r.error ? str_printf("no pude consultar GitHub: %s", r.error)
-                         : str_printf("GitHub respondió %d", r.status);
-        http_response_free(&r);
-        return false;
-    }
-    cJSON *j = cJSON_Parse(r.body);
-    http_response_free(&r);
-    cJSON *tag = cJSON_GetObjectItem(j, "tag_name");
-    const cJSON *asset = update_pick_asset(cJSON_GetObjectItem(j, "assets"));
-    if (asset) {
-        cJSON *url = cJSON_GetObjectItem(asset, "browser_download_url");
-        cJSON *size = cJSON_GetObjectItem(asset, "size");
-        cJSON *digest = cJSON_GetObjectItem(asset, "digest");
-        if (cJSON_IsString(url)) out->url = xstrdup(url->valuestring);
-        if (cJSON_IsNumber(size)) out->size = size->valuedouble;
-        if (cJSON_IsString(digest) && str_starts_with(digest->valuestring, "sha256:"))
-            out->sha256 = xstrdup(digest->valuestring + 7);
-    }
-    if (cJSON_IsString(tag)) out->tag = xstrdup(tag->valuestring);
-    cJSON_Delete(j);
-    if (!out->tag || !out->url) {
+    GhRelease g;
+    if (!gh_latest("Sokari.exe", &g, error)) return false;
+    out->tag = g.tag;
+    out->url = g.url;
+    out->sha256 = g.sha256;
+    out->size = g.size;
+    if (!out->url) {
         *error = xstrdup("la última versión en GitHub no trae Sokari.exe");
         release_free(out);
         return false;
@@ -136,13 +119,7 @@ static bool fetch_latest(Release *out, char **error)
 
 const cJSON *update_pick_asset(const cJSON *assets)
 {
-    const cJSON *a;
-    cJSON_ArrayForEach(a, assets)
-    {
-        const cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "name");
-        if (cJSON_IsString(name) && !strcmp(name->valuestring, "Sokari.exe")) return a;
-    }
-    return NULL;
+    return gh_pick_asset(assets, "Sokari.exe");
 }
 
 static bool download_verified(const Release *rel, const wchar_t *dest, char **error)

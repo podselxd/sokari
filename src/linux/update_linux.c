@@ -13,6 +13,7 @@
 
 #include "app.h"
 #include "config.h"
+#include "github.h"
 #include "http.h"
 #include "linux/linux.h"
 #include "linux/proc.h"
@@ -51,17 +52,17 @@ const char *linux_package_kind(void)
 
 void update_cleanup_old(void) {}
 
-const cJSON *update_pick_asset(const cJSON *assets)
+/* El paquete de este sistema: Sokari.deb o Sokari.rpm (heap), o NULL. */
+static char *asset_name(void)
 {
     const char *kind = linux_package_kind();
-    if (!kind) return NULL;
-    char *want = str_printf("Sokari.%s", kind);
-    const cJSON *a, *found = NULL;
-    cJSON_ArrayForEach(a, assets)
-    {
-        const cJSON *name = cJSON_GetObjectItemCaseSensitive(a, "name");
-        if (!found && cJSON_IsString(name) && !strcmp(name->valuestring, want)) found = a;
-    }
+    return kind ? str_printf("Sokari.%s", kind) : NULL;
+}
+
+const cJSON *update_pick_asset(const cJSON *assets)
+{
+    char *want = asset_name();
+    const cJSON *found = gh_pick_asset(assets, want);
     free(want);
     return found;
 }
@@ -79,40 +80,20 @@ static void release_free(Release *r)
     memset(r, 0, sizeof *r);
 }
 
+/* La última versión y su paquete: por la API de GitHub o, si no deja (403),
+   por la página del release (ver github.h). */
 static bool fetch_latest(Release *out, char **error)
 {
     memset(out, 0, sizeof *out);
-    HttpRequest req = {.method = "GET",
-                       .url = "https://api.github.com/repos/" GITHUB_REPO "/releases/latest",
-                       .headers = "Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n",
-                       .timeout_ms = 20000};
-    HttpResponse r = http_request(&req);
-    if (r.status != 200) {
-        *error = r.error ? str_printf("no pude consultar GitHub: %s", r.error)
-                         : str_printf("GitHub respondió %d", r.status);
-        http_response_free(&r);
-        return false;
-    }
-    cJSON *j = cJSON_Parse(r.body);
-    http_response_free(&r);
-    const cJSON *tag = cJSON_GetObjectItem(j, "tag_name");
-    const cJSON *asset = update_pick_asset(cJSON_GetObjectItem(j, "assets"));
-    if (cJSON_IsString(tag)) out->tag = xstrdup(tag->valuestring);
-    if (asset) {
-        const cJSON *url = cJSON_GetObjectItem(asset, "browser_download_url");
-        const cJSON *size = cJSON_GetObjectItem(asset, "size");
-        const cJSON *digest = cJSON_GetObjectItem(asset, "digest");
-        if (cJSON_IsString(url)) out->url = xstrdup(url->valuestring);
-        if (cJSON_IsNumber(size)) out->size = size->valuedouble;
-        if (cJSON_IsString(digest) && str_starts_with(digest->valuestring, "sha256:"))
-            out->sha256 = xstrdup(digest->valuestring + 7);
-    }
-    cJSON_Delete(j);
-    if (!out->tag) {
-        *error = xstrdup("GitHub no dijo cuál es la última versión");
-        release_free(out);
-        return false;
-    }
+    char *want = asset_name();
+    GhRelease g;
+    bool ok = gh_latest(want, &g, error);
+    free(want);
+    if (!ok) return false;
+    out->tag = g.tag;
+    out->url = g.url;
+    out->sha256 = g.sha256;
+    out->size = g.size;
     return true;
 }
 

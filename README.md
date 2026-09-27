@@ -12,7 +12,7 @@ Es **un solo `Sokari.exe`** de unos 3 MB, escrito en C. No necesita Python ni in
 
 Cuando lo abres a mano después de la primera vez, sale la **ventana de Inicio** (abajo). Si lo pusiste a iniciar con Windows, al prender la PC arranca directo, sin esa ventana.
 
-Se actualiza solo. Revisa GitHub al arrancar y cada 6 horas, y solo instala la versión nueva cuando no le estás hablando. Antes de reemplazarse comprueba la huella SHA-256 del archivo.
+Se actualiza solo. Revisa GitHub al arrancar y cada 6 horas, y solo instala la versión nueva cuando no le estás hablando. Antes de reemplazarse comprueba la huella SHA-256 del archivo. Si GitHub no le deja consultar (responde 403 cuando se acaba su límite de consultas para tu red, algo común si tu compañía de internet comparte la IP), lo revisa en la página del release y comprueba la descarga con la huella que se publica junto a cada archivo (`Sokari.exe.sha256`).
 
 ### En Linux (beta)
 
