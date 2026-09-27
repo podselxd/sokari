@@ -108,6 +108,17 @@ int wmain(int argc, wchar_t **argv)
                    over ? "se mete en Guardar" : "cabe arriba de Guardar");
             if (!ok) fails++;
             if (k == 1) capture(h, argv[1], L"ui_pantalla_1366x768");
+            if (k < 2) {
+                /* Voz y audio (con «Callarme con solo hablarme encima») también cabe. */
+                int ya = MulDiv(110 + 3 * 46 + 20, (int)dpi, 96);
+                SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(MulDiv(60, (int)dpi, 96), ya));
+                pump(200);
+                int over_a = settings_overflow();
+                printf("%s Voz y audio con %d de alto: %s\n", over_a == 0 ? "ok   " : "FALLA", heights[k],
+                       over_a ? "se mete en Guardar" : "cabe arriba de Guardar");
+                if (over_a) fails++;
+                if (k == 1) capture(h, argv[1], L"ui_audio_1366x768");
+            }
         }
     }
     DestroyWindow(h);

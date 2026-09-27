@@ -129,6 +129,7 @@ static void defaults(AppConfig *c)
     c->full_access = true;
     c->end_silence = 1;
     c->duck = true;
+    c->barge_in = true;
 }
 
 static void apply_kv(AppConfig *c, const char *key, const char *value)
@@ -165,6 +166,8 @@ static void apply_kv(AppConfig *c, const char *key, const char *value)
         c->end_silence = !strcmp(value, "corta") ? 0 : !strcmp(value, "larga") ? 2 : 1;
     } else if (!strcmp(key, "SOKARI_DUCK")) {
         c->duck = parse_bool(value);
+    } else if (!strcmp(key, "SOKARI_BARGE_IN")) {
+        c->barge_in = parse_bool(value);
     } else if (!strcmp(key, "SOKARI_SPHERE_STYLE")) {
         c->sphere_style = sphere_style_from_key(value);
     } else if (!strcmp(key, "SOKARI_ANIMATION")) {
@@ -269,6 +272,7 @@ static bool save_locked(void)
     sb_appendf(&sb, "SOKARI_FACE_SYMBOLS=%d\n", g_cfg.face_symbols ? 1 : 0);
     sb_appendf(&sb, "SOKARI_END_SILENCE=%s\n", g_cfg.end_silence == 0 ? "corta" : g_cfg.end_silence == 2 ? "larga" : "normal");
     sb_appendf(&sb, "SOKARI_DUCK=%d\n", g_cfg.duck ? 1 : 0);
+    sb_appendf(&sb, "SOKARI_BARGE_IN=%d\n", g_cfg.barge_in ? 1 : 0);
     sb_appendf(&sb, "SOKARI_ORB_POS=%d,%d\n", g_cfg.orb_x, g_cfg.orb_y);
     sb_appendf(&sb, "SOKARI_WINDOW=%d,%d,%d,%d\n", g_cfg.win_x, g_cfg.win_y, g_cfg.win_w, g_cfg.win_h);
     sb_appendf(&sb, "SOKARI_SUBTITLES=%d\n", g_cfg.subtitles ? 1 : 0);
@@ -448,6 +452,14 @@ bool config_duck(void)
 {
     AcquireSRWLockShared(&g_lock);
     bool v = g_cfg.duck;
+    ReleaseSRWLockShared(&g_lock);
+    return v;
+}
+
+bool config_barge_in(void)
+{
+    AcquireSRWLockShared(&g_lock);
+    bool v = g_cfg.barge_in;
     ReleaseSRWLockShared(&g_lock);
     return v;
 }

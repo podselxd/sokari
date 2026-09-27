@@ -131,6 +131,7 @@ static struct {
     int appear; /* cómo entra y sale la esfera (SphereAnim) */
     int volume, sensitivity;
     int end_silence, duck; /* cuánto espera cuando te callas; bajar el volumen mientras te escucha */
+    int barge_in;          /* hablarle encima la calla */
     wchar_t *status_line;
     bool api_visible, stop_visible, mesh_visible, key_visible[4];
     MeshDevice *devs; /* tus dispositivos, releídos cada vez que se arma la sección */
@@ -617,6 +618,7 @@ static void layout(void)
         layout_label(x, y + dp(9), w * 2 / 5, L"Cuánto espero cuando te callas");
         y = layout_segment(x + w * 2 / 5, y, w - w * 2 / 5, &S.end_silence, END_LABELS, 3) - dp(4);
         y = layout_toggle(x, y, w, &S.duck, L"Bajar el volumen de la PC mientras te escucho");
+        y = layout_toggle(x, y, w, &S.barge_in, L"Callarme con solo hablarme encima (sin decir \"Hey Sokari\")");
         break;
     case SEC_GENERAL:
         y = layout_toggle(x, y, w, &S.autostart, L"Iniciar Sokari con Windows");
@@ -1058,6 +1060,7 @@ static void load_values(void)
     S.face_symbols = S.cfg.face_symbols;
     S.end_silence = S.cfg.end_silence;
     S.duck = S.cfg.duck;
+    S.barge_in = S.cfg.barge_in;
     S.subtitles = S.cfg.subtitles;
     S.show_only_talking = S.cfg.show_only_talking;
     S.full_access = S.cfg.full_access;
@@ -1159,6 +1162,7 @@ static void save(void)
     c.face_symbols = S.face_symbols != 0;
     c.end_silence = S.end_silence;
     c.duck = S.duck != 0;
+    c.barge_in = S.barge_in != 0;
     c.subtitles = S.subtitles != 0;
     c.show_only_talking = S.show_only_talking != 0;
     c.full_access = S.full_access != 0;
