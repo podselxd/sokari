@@ -14,7 +14,7 @@ LIBS := $(shell pkg-config --libs $(PKGS)) -lm -lpthread
 # Del código compartido con Windows, lo que no depende del sistema. Lo propio
 # de Linux está en src/linux/ (y src/linux/include/windows.h da los hilos y
 # candados con la misma forma que en Windows).
-SHARED := affect agent audio_common face calc config github groq http_common intents keys log memory mesh mesh_devices prosody sounds_common sphere style_preview \
+SHARED := aec affect agent audio_common face calc config eco fft github groq http_common intents keys log memory mesh mesh_devices prosody sounds_common sphere style_preview \
           skills skills_calc skills_notes skills_timers skills_user skills_weather \
           tool_policy tools tools_common tools_memory tools_web tts_common util vad vibe voice wakeword nn_generic nn_avx2
 # Detector de voz de WebRTC (C puro, licencia BSD): ver src/third_party/webrtc_vad.
@@ -31,7 +31,7 @@ HEY_SOKARI := $(wildcard res/hey_sokari.jww)
 RES_FILES := res/tools.json res/system_prompt.txt res/wakeword.bin res/sokari.png $(HEY_SOKARI)
 
 # Las pruebas que ya corren en Linux (las demás llegan con cada parte).
-LINUX_TESTS := test_afecto test_aparecer test_cara test_github test_vibra test_comandos test_skills test_confirmacion test_escucha test_malla test_resources test_respaldos test_teclado test_util test_voice test_wakeword test_groq
+LINUX_TESTS := test_afecto test_aparecer test_cara test_eco test_github test_vibra test_comandos test_skills test_confirmacion test_escucha test_malla test_resources test_respaldos test_teclado test_util test_voice test_wakeword test_groq
 # Y las que son solo de Linux (tests/linux/).
 LINUX_ONLY_TESTS := $(patsubst tests/linux/%.c,%,$(wildcard tests/linux/*.c))
 TESTS := $(addprefix build-linux/tests/,$(LINUX_TESTS) $(LINUX_ONLY_TESTS))

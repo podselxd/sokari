@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "audio.h"
+#include "eco.h"
 #include "log.h"
 #include "util.h"
 
@@ -23,6 +24,7 @@ static volatile LONG g_running;
 
 static int16_t *g_ring;
 static size_t g_ring_start, g_ring_count;
+static uint64_t g_pushed; /* muestras que ha dado el micrófono desde que se abrió */
 static SRWLOCK g_ring_lock = SRWLOCK_INIT;
 static CONDITION_VARIABLE g_ring_cv = CONDITION_VARIABLE_INIT;
 static volatile LONG g_level_milli;
@@ -39,7 +41,10 @@ static void ring_push(const int16_t *s, size_t n)
         else
             g_ring_start = (g_ring_start + 1) % RING_SAMPLES;
     }
+    g_pushed += n;
+    uint64_t total = g_pushed;
     ReleaseSRWLockExclusive(&g_ring_lock);
+    eco_mic_pushed(total);
     WakeAllConditionVariable(&g_ring_cv);
 }
 
@@ -95,6 +100,8 @@ bool mic_start(const char *device_name)
 {
     if (!g_ring) g_ring = xmalloc(sizeof(int16_t) * RING_SAMPLES);
     g_ring_start = g_ring_count = 0;
+    g_pushed = 0;
+    eco_mic_reset();
     WAVEFORMATEX fmt = {.wFormatTag = WAVE_FORMAT_PCM, .nChannels = 1, .nSamplesPerSec = MIC_RATE,
                         .wBitsPerSample = 16, .nBlockAlign = 2, .nAvgBytesPerSec = MIC_RATE * 2};
     g_event = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -168,6 +175,15 @@ bool mic_read(int16_t out[MIC_FRAME], unsigned timeout_ms)
 bool mic_read_nowait(int16_t out[MIC_FRAME])
 {
     AcquireSRWLockExclusive(&g_ring_lock);
+    bool ok = ring_pop(out, MIC_FRAME);
+    ReleaseSRWLockExclusive(&g_ring_lock);
+    return ok;
+}
+
+bool mic_read_nowait_pos(int16_t out[MIC_FRAME], uint64_t *pos)
+{
+    AcquireSRWLockExclusive(&g_ring_lock);
+    *pos = g_pushed - g_ring_count;
     bool ok = ring_pop(out, MIC_FRAME);
     ReleaseSRWLockExclusive(&g_ring_lock);
     return ok;
@@ -253,6 +269,23 @@ static UINT out_device(void)
 #define PLAY_BUFFERS 4
 #define PLAY_CHUNK_MS 40
 
+static volatile LONG g_hold;
+
+void speaker_hold(bool hold)
+{
+    InterlockedExchange(&g_hold, hold ? 1 : 0);
+}
+
+/* Cuántas muestras ya sonaron desde que se abrió la salida. */
+static size_t played_samples(HWAVEOUT hwo)
+{
+    MMTIME t = {.wType = TIME_SAMPLES};
+    if (waveOutGetPosition(hwo, &t, sizeof t) != MMSYSERR_NOERROR) return 0;
+    if (t.wType == TIME_SAMPLES) return t.u.sample;
+    if (t.wType == TIME_BYTES) return t.u.cb / 2;
+    return 0;
+}
+
 bool speaker_play(const int16_t *pcm, size_t samples, int rate, float gain, PlayCallback cb, void *ctx)
 {
     WAVEFORMATEX fmt = {.wFormatTag = WAVE_FORMAT_PCM, .nChannels = 1, .nSamplesPerSec = (DWORD)rate,
@@ -282,11 +315,31 @@ bool speaker_play(const int16_t *pcm, size_t samples, int rate, float gain, Play
 
     size_t pos = 0;
     int in_flight = 0;
-    bool stopped = false;
+    bool stopped = false, paused = false;
     bool free_slot[PLAY_BUFFERS];
     for (int i = 0; i < PLAY_BUFFERS; i++) free_slot[i] = true;
+    /* Lo que va a sonar, para quitárselo al micrófono (eco.h): desde seg_base,
+       que cambia al reanudar. */
+    size_t seg_base = 0;
+    unsigned eco_id = eco_play_begin(pcm, samples, rate, gain);
+    if (cb) InterlockedExchange(&g_hold, 0); /* una pausa vieja no cuenta */
 
-    while (!stopped && (pos < samples || in_flight > 0)) {
+    while (!stopped && (pos < samples || in_flight > 0 || paused)) {
+        if (paused) {
+            /* En pausa: el callback sigue oyendo (y decide si sigue). */
+            WaitForSingleObject(ev, 30);
+            if (cb && !cb(0.0f, ctx)) {
+                stopped = true;
+                break;
+            }
+            if (!InterlockedCompareExchange(&g_hold, 0, 0)) {
+                seg_base = played_samples(hwo);
+                if (seg_base < samples) eco_id = eco_play_resume(eco_id, pcm + seg_base, samples - seg_base, rate, gain);
+                waveOutRestart(hwo);
+                paused = false;
+            }
+            continue;
+        }
         for (int i = 0; i < PLAY_BUFFERS && pos < samples; i++) {
             if (!free_slot[i]) continue;
             size_t n = samples - pos < chunk ? samples - pos : chunk;
@@ -329,8 +382,16 @@ bool speaker_play(const int16_t *pcm, size_t samples, int rate, float gain, Play
                 break;
             }
         }
+        if (!stopped && cb && InterlockedCompareExchange(&g_hold, 0, 0)) {
+            waveOutPause(hwo);
+            paused = true;
+            eco_play_cut(eco_id, played_samples(hwo) - seg_base);
+        }
     }
-    if (stopped) waveOutReset(hwo);
+    if (stopped) {
+        eco_play_cut(eco_id, played_samples(hwo) - seg_base);
+        waveOutReset(hwo);
+    }
     for (int i = 0; i < PLAY_BUFFERS; i++) {
         if (!free_slot[i]) {
             while (!(hdr[i].dwFlags & WHDR_DONE)) Sleep(5);
@@ -340,7 +401,10 @@ bool speaker_play(const int16_t *pcm, size_t samples, int rate, float gain, Play
     }
     waveOutClose(hwo);
     CloseHandle(ev);
-    if (cb) cb(0, ctx);
+    if (cb) {
+        InterlockedExchange(&g_hold, 0);
+        cb(0, ctx);
+    }
     return !stopped;
 }
 

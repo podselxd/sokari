@@ -54,7 +54,7 @@ typedef struct {
     GtkWidget *mode, *mode_help, *only_talking, *styles, *anim, *subtitles, *face_symbols;
     int style; /* el estilo elegido en las miniaturas */
     /* Voz y audio */
-    GtkWidget *volume, *voice, *mic, *out, *sensitivity, *end_silence, *duck;
+    GtkWidget *volume, *voice, *mic, *out, *sensitivity, *end_silence, *duck, *barge_in;
     TtsVoice *voices;
     int nvoices;
     /* General */
@@ -591,6 +591,7 @@ static GtkWidget *page_audio(Form *f, const AppConfig *cfg)
                     1, r++, 1, 1);
     f->end_silence = add_row(g, r++, "Cuánto espero cuando te callas", choice(END_NAMES, 3, cfg->end_silence));
     f->duck = add_wide(g, r++, check("Bajar el volumen de la PC mientras te escucho", cfg->duck));
+    f->barge_in = add_wide(g, r++, check("Callarme con solo hablarme encima (sin decir «Hey Sokari»)", cfg->barge_in));
     return g;
 }
 
@@ -1030,6 +1031,7 @@ static bool save(Form *f)
     int end = gtk_combo_box_get_active(GTK_COMBO_BOX(f->end_silence));
     cfg.end_silence = end >= 0 && end < 3 ? end : 1;
     cfg.duck = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->duck));
+    cfg.barge_in = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->barge_in));
     cfg.full_access = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->full));
     cfg.autostart = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->autostart));
     set_str(&cfg.city, entry_text(f->city));

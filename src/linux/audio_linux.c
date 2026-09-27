@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "audio.h"
+#include "eco.h"
 #include "linux/linux.h"
 #include "log.h"
 #include "util.h"
@@ -192,6 +193,7 @@ static HANDLE g_thread;
 static volatile LONG g_running;
 static int16_t *g_ring;
 static size_t g_ring_start, g_ring_count;
+static uint64_t g_pushed; /* muestras que ha dado el micrófono desde que se abrió */
 static CRITICAL_SECTION g_ring_lock;
 static CONDITION_VARIABLE g_ring_cv;
 static bool g_ring_init;
@@ -207,8 +209,11 @@ static void ring_push(const int16_t *s, size_t n)
         if (g_ring_count < RING_SAMPLES) g_ring_count++;
         else g_ring_start = (g_ring_start + 1) % RING_SAMPLES; /* lleno: se pierde lo más viejo */
     }
+    g_pushed += n;
+    uint64_t total = g_pushed;
     WakeAllConditionVariable(&g_ring_cv);
     LeaveCriticalSection(&g_ring_lock);
+    eco_mic_pushed(total);
 }
 
 static bool ring_pop(int16_t *out, size_t n)
@@ -250,6 +255,8 @@ bool mic_start(const char *device_name)
         g_ring_init = true;
     }
     g_ring_start = g_ring_count = 0;
+    g_pushed = 0;
+    eco_mic_reset();
     pa_sample_spec ss = {.format = PA_SAMPLE_S16LE, .rate = MIC_RATE, .channels = 1};
     /* Pedazos de 80 ms: lo que el hilo de voz lee de una vez. */
     pa_buffer_attr ba = {.maxlength = (uint32_t)-1, .fragsize = MIC_FRAME * 2};
@@ -320,6 +327,16 @@ bool mic_read_nowait(int16_t out[MIC_FRAME])
     return ok;
 }
 
+bool mic_read_nowait_pos(int16_t out[MIC_FRAME], uint64_t *pos)
+{
+    if (!g_ring_init) return false;
+    EnterCriticalSection(&g_ring_lock);
+    *pos = g_pushed - g_ring_count;
+    bool ok = ring_pop(out, MIC_FRAME);
+    LeaveCriticalSection(&g_ring_lock);
+    return ok;
+}
+
 void mic_flush(void)
 {
     if (!g_ring_init) return;
@@ -358,6 +375,22 @@ static float now_playing(pa_simple *s, size_t written, int rate, size_t chunk, c
     return at / chunk < nchunks ? levels[at / chunk] : 0.0f;
 }
 
+static volatile LONG g_hold;
+
+void speaker_hold(bool hold)
+{
+    InterlockedExchange(&g_hold, hold ? 1 : 0);
+}
+
+/* Cuántas de las que se escribieron ya sonaron. */
+static size_t played_samples(pa_simple *s, size_t written, int rate)
+{
+    int err;
+    pa_usec_t lat = pa_simple_get_latency(s, &err);
+    size_t behind = (size_t)((double)lat * rate / 1e6);
+    return written > behind ? written - behind : 0;
+}
+
 bool speaker_play(const int16_t *pcm, size_t samples, int rate, float gain, PlayCallback cb, void *ctx)
 {
     pa_sample_spec ss = {.format = PA_SAMPLE_S16LE, .rate = (uint32_t)rate, .channels = 1};
@@ -384,46 +417,85 @@ bool speaker_play(const int16_t *pcm, size_t samples, int rate, float gain, Play
     size_t chunk = (size_t)rate * PLAY_CHUNK_MS / 1000;
     size_t nchunks = (samples + chunk - 1) / chunk;
     float *levels = xcalloc(nchunks + 1, sizeof(float));
-    int16_t *buf = xmalloc(sizeof(int16_t) * chunk);
-    bool stopped = false;
-    size_t written = 0;
-    for (size_t c = 0; c < nchunks && !stopped; c++) {
+    for (size_t c = 0; c < nchunks; c++) {
         size_t pos = c * chunk, n = samples - pos < chunk ? samples - pos : chunk;
         double sum = 0;
+        for (size_t k = 0; k < n; k++) sum += fabs((float)pcm[pos + k] * gain);
+        float lvl = (float)(sum / (double)n / 4000.0);
+        levels[c] = lvl > 1 ? 1 : lvl;
+    }
+    int16_t *buf = xmalloc(sizeof(int16_t) * chunk);
+    bool stopped = false;
+    /* written: hasta dónde se mandó de lo suyo; silent: el silencio que se
+       mandó en pausas. Lo que va a sonar va también al eco (eco.h). */
+    size_t written = 0, seg_base = 0, silent = 0;
+    unsigned eco_id = eco_play_begin(pcm, samples, rate, gain);
+    if (cb) InterlockedExchange(&g_hold, 0); /* una pausa vieja no cuenta */
+    for (;;) {
+        if (cb && InterlockedCompareExchange(&g_hold, 0, 0)) {
+            /* En pausa: lo que ya se mandó termina de sonar y luego silencio,
+               sin dejar de mandar audio (así la salida no se reinicia y la
+               cuenta del eco sigue exacta). */
+            eco_play_cut(eco_id, written - seg_base);
+            size_t gap = 0;
+            memset(buf, 0, sizeof(int16_t) * chunk);
+            while (!stopped && InterlockedCompareExchange(&g_hold, 0, 0)) {
+                if (pa_simple_write(s, buf, chunk * sizeof(int16_t), &err) < 0) stopped = true;
+                gap += chunk;
+                if (!stopped && !cb(0.0f, ctx)) stopped = true;
+            }
+            silent += gap;
+            if (stopped) break;
+            seg_base = written;
+            if (written < samples) eco_id = eco_play_continue(eco_id, gap, pcm + written, samples - written, rate, gain);
+            continue;
+        }
+        if (written >= samples) break;
+        size_t n = samples - written < chunk ? samples - written : chunk;
         for (size_t k = 0; k < n; k++) {
-            float v = (float)pcm[pos + k] * gain;
+            float v = (float)pcm[written + k] * gain;
             if (v > 32767) v = 32767;
             if (v < -32768) v = -32768;
             buf[k] = (int16_t)v;
-            sum += fabs(v);
         }
-        float lvl = (float)(sum / (double)n / 4000.0);
-        levels[c] = lvl > 1 ? 1 : lvl;
         if (pa_simple_write(s, buf, n * sizeof(int16_t), &err) < 0) {
             log_msg("Se cortó la salida de audio: %s", pa_strerror(err));
             stopped = true;
             break;
         }
         written += n;
-        if (cb && !cb(now_playing(s, written, rate, chunk, levels, nchunks), ctx)) stopped = true;
+        if (cb && !cb(now_playing(s, written + silent, rate, chunk, levels, nchunks), ctx)) stopped = true;
+        if (stopped) break;
     }
     /* Lo que falta por sonar (lo del buffer más la latencia de la salida, que
-       nunca llega a cero) también se puede cortar. */
+       nunca llega a cero) también se puede cortar; si se pausa aquí, ya no
+       falta nada de lo suyo por mandar: solo se espera. */
     if (!stopped) {
         int e2;
         pa_usec_t lat = pa_simple_get_latency(s, &e2);
         uint64_t until = GetTickCount64() + lat / 1000;
-        while (!stopped && GetTickCount64() < until) {
-            if (cb && !cb(now_playing(s, written, rate, chunk, levels, nchunks), ctx)) stopped = true;
+        while (!stopped && (GetTickCount64() < until || (cb && InterlockedCompareExchange(&g_hold, 0, 0)))) {
+            if (cb && !cb(now_playing(s, written + silent, rate, chunk, levels, nchunks), ctx)) stopped = true;
             else Sleep(20);
         }
     }
-    if (stopped) pa_simple_flush(s, &err);
-    else pa_simple_drain(s, &err);
+    if (stopped) {
+        /* De lo suyo, lo que alcanzó a sonar (lo demás se tira). */
+        size_t at = played_samples(s, written + silent, rate);
+        at = at > silent ? at - silent : 0;
+        if (at > written) at = written;
+        eco_play_cut(eco_id, at > seg_base ? at - seg_base : 0);
+        pa_simple_flush(s, &err);
+    } else {
+        pa_simple_drain(s, &err);
+    }
     pa_simple_free(s);
     free(buf);
     free(levels);
-    if (cb) cb(0, ctx);
+    if (cb) {
+        InterlockedExchange(&g_hold, 0);
+        cb(0, ctx);
+    }
     return !stopped;
 }
 
