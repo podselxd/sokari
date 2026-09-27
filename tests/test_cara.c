@@ -14,6 +14,7 @@
 #include "config.h"
 #include "face.h"
 #include "sphere.h"
+#include "style_preview.h"
 #include "util.h"
 
 static int g_fail, g_total;
@@ -411,6 +412,34 @@ static void test_limites(void)
     face_destroy(f);
 }
 
+/* Las miniaturas de Pantalla → Estilo (Windows y Linux usan este mismo
+   código): las 5 dibujan algo y se mueven solas. */
+static void test_miniaturas(void)
+{
+    printf("-- las miniaturas de los estilos --\n");
+    int moving = 0, drawn = 0;
+    for (int s = 0; s < SPHERE_STYLE_COUNT; s++) {
+        StylePreview *p = style_preview_create((SphereStyle)s, 64, (unsigned)s + 1);
+        int n = style_preview_size(p);
+        uint32_t *a = calloc((size_t)n * n, 4), *b = calloc((size_t)n * n, 4);
+        style_preview_frame(p, 0.04, true, a, n);
+        style_preview_frame(p, 0.4, true, b, n);
+        int lit = 0, diff = 0;
+        for (int i = 0; i < n * n; i++) {
+            if ((a[i] & 0xFFFFFF) > 0x202020) lit++;
+            if (a[i] != b[i]) diff++;
+        }
+        if (lit > n * n / 50) drawn++;
+        if (diff > n * n / 100) moving++;
+        free(a);
+        free(b);
+        style_preview_destroy(p);
+    }
+    char msg[120];
+    snprintf(msg, sizeof msg, "las 5 dibujan su estilo (%d/5) y se mueven solas (%d/5)", drawn, moving);
+    check(drawn == SPHERE_STYLE_COUNT && moving == SPHERE_STYLE_COUNT, msg);
+}
+
 static AppConfig load_text(const char *text)
 {
     write_file_atomic(g_paths.config_file, text, strlen(text));
@@ -467,6 +496,7 @@ int wmain(void)
     g_paths.config_file = path_join(dir, L"config.env");
 
     test_dibujo();
+    test_miniaturas();
     test_poses();
     test_gestos();
     test_limites();
