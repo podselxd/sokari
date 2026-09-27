@@ -27,7 +27,7 @@ typedef struct {
     char *title; /* lo pone cada app o página: nunca se le repite al modelo en un resultado */
     char *categories; /* las del .desktop: "GNOME;GTK;Utility;TerminalEmulator;" */
     int pid;
-    bool focused, minimized, terminal;
+    bool focused, minimized, above, terminal;
 } GnomeWindow;
 
 /* Qué decir cuando no se pudo (estático). */
@@ -61,6 +61,11 @@ GnomeStatus gnome_clipboard_set_file(const char *path, char **kind);
    abierta y no le pasas ninguna, trae su ventana. status (heap): "launched",
    "focused" o "missing". */
 GnomeStatus gnome_launch_app(const char *desktop_id, const char *const *uris, char **status);
+
+/* Una ventana del propio Sokari (por su título): "above" (encima de todo y
+   en todos los escritorios), "normal", "move" (a x, y) o "where". *x, *y:
+   dónde quedó (pueden ser NULL). ok false si no la encontró. */
+GnomeStatus gnome_own_window(const char *title, const char *action, int x, int y, int *out_x, int *out_y, bool *ok);
 
 /* Al arrancar: si hay GNOME y la extensión no está prendida, la prende (si
    GNOME todavía no la conoce, queda para el siguiente inicio de sesión). No

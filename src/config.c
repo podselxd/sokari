@@ -20,6 +20,10 @@ static const char *DISPLAY_KEYS[DISPLAY_MODE_COUNT] = {"fullscreen", "fullscreen
                                                       "windowed", "minimized"};
 
 static const char *const APPEAR_KEYS[] = {"materializar", "deslizar", "zoom", "ninguna"};
+/* La versión de config.env: sube cuando algo guardado antes hay que
+   acomodarlo al cargarlo (ver load_env_file). */
+#define CONFIG_VERSION 2
+
 static const char *const STYLE_KEYS[] = {"puntos", "lineas", "cara_ojos", "cara_boca", "cara_puntos"};
 #define STYLE_COUNT (int)(sizeof STYLE_KEYS / sizeof *STYLE_KEYS)
 
@@ -105,7 +109,11 @@ static void defaults(AppConfig *c)
     c->ai_order = xstrdup(DEFAULT_AI_ORDER);
     c->skills_off = xstrdup("");
     c->city = xstrdup("");
+#ifdef _WIN32
     c->display_mode = DISPLAY_FULLSCREEN;
+#else
+    c->display_mode = DISPLAY_WINDOWED_BORDERLESS; /* en Linux, la esfera flotante */
+#endif
     c->resolution = 0;
     c->volume = 100;
     c->wake_sensitivity = 67;
@@ -184,6 +192,7 @@ static bool load_env_file(const wchar_t *path, AppConfig *c)
     if (!text) return false;
     char *save = NULL;
     bool face_keys = false;
+    int version = 0;
     for (char *line = strtok_r(text, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
         char *t = str_trim(line);
         char *eq = strchr(t, '=');
@@ -192,6 +201,7 @@ static bool load_env_file(const wchar_t *path, AppConfig *c)
             char *k = str_trim(t), *v = str_trim(eq + 1);
             apply_kv(c, k, v);
             if (str_starts_with(k, "SOKARI_FACE_")) face_keys = true;
+            if (!strcmp(k, "SOKARI_CONFIG_VERSION")) version = atoi(v);
             free(k);
             free(v);
         }
@@ -202,6 +212,13 @@ static bool load_env_file(const wchar_t *path, AppConfig *c)
        no lo eligió nadie, era lo único. Pasa a la de fábrica, solo ojos; si
        después eliges el halo, ya se guarda con lo de la cara y se respeta. */
     if (!face_keys && c->sphere_style == SPHERE_STYLE_DOTS) c->sphere_style = SPHERE_STYLE_FACE_EYES;
+#ifndef _WIN32
+    /* Hasta la 2.7.0 Linux no tenía modos de pantalla: el que quedó guardado
+       no lo eligió nadie. Pasa a la de fábrica, la esfera flotante. */
+    if (version < 2) c->display_mode = DISPLAY_WINDOWED_BORDERLESS;
+#else
+    (void)version;
+#endif
     return true;
 }
 
@@ -227,6 +244,7 @@ static bool save_locked(void)
     StrBuf sb;
     sb_init(&sb);
     sb_append(&sb, "# Configuración de Sokari. Se edita desde la ventana de Configuración.\n");
+    sb_appendf(&sb, "SOKARI_CONFIG_VERSION=%d\n", CONFIG_VERSION);
     put_kv(&sb, "GROQ_API_KEY", g_cfg.groq_api_key);
     put_kv(&sb, "SOKARI_USER_NAME", g_cfg.user_name);
     put_kv(&sb, "SOKARI_STOP_WORD", g_cfg.stop_word);

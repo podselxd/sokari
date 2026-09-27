@@ -154,6 +154,7 @@ static bool window_from_json(const cJSON *o, GnomeWindow *w)
     w->pid = cJSON_IsNumber(pid) ? (int)pid->valuedouble : 0;
     w->focused = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(o, "focused"));
     w->minimized = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(o, "minimized"));
+    w->above = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(o, "above"));
     w->terminal = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(o, "terminal"));
     return true;
 }
@@ -226,6 +227,22 @@ GnomeStatus gnome_activate(uint64_t id, bool *ok)
 GnomeStatus gnome_window_action(uint64_t id, const char *action, bool *ok)
 {
     return call_bool("WindowAction", g_variant_new("(ts)", (guint64)id, action), ok);
+}
+
+GnomeStatus gnome_own_window(const char *title, const char *action, int x, int y, int *out_x, int *out_y, bool *ok)
+{
+    GVariant *r;
+    GnomeStatus st = call("OwnWindow", g_variant_new("(ssii)", title, action, x, y), "(bii)", 3000, &r);
+    gboolean b = FALSE;
+    gint32 rx = 0, ry = 0;
+    if (r) {
+        g_variant_get(r, "(bii)", &b, &rx, &ry);
+        g_variant_unref(r);
+    }
+    if (ok) *ok = b;
+    if (out_x) *out_x = rx;
+    if (out_y) *out_y = ry;
+    return st;
 }
 
 GnomeStatus gnome_minimize_all(int *count)

@@ -216,6 +216,7 @@ static int find_installed_apps(const char *query, AppMatch *best, AppMatch *simi
    Devuelve "launched", "focused" o NULL si no se pudo. */
 static const char *launch_app(GAppInfo *info, const char *uri)
 {
+    app_yield_focus();
     const char *id = g_app_info_get_id(info);
     if (id) {
         const char *uris[] = {uri, NULL};

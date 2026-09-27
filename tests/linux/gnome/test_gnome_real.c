@@ -317,6 +317,19 @@ static void test_ventana_de_sokari(void)
     }
     pid_t pid = start_sokari(NULL);
     check(wait_titled("Sokari", 1, 10000), "abre su ventana con la esfera");
+    /* De fábrica, en Linux: la esfera flotante, que la extensión pone encima de todo. */
+    bool above = false;
+    for (int t = 0; t < 40 && !above; t++) {
+        GnomeWindow *ws;
+        int nw;
+        if (gnome_list_windows(&ws, &nw) == GN_OK) {
+            for (int i = 0; i < nw; i++)
+                if (!strcmp(ws[i].title, "Sokari") && ws[i].above) above = true;
+            gnome_windows_free(ws, nw);
+        }
+        if (!above) Sleep(100);
+    }
+    check(above, "de fábrica es la esfera flotante y queda encima de todo (la pone ahí la extensión)");
     check(wait_titled("Configuración de Sokari", 1, 3000), "la primera vez (sin API key) abre también Configuración");
     Sleep(2500);
     check(pid > 0 && kill(pid, 0) == 0, "la esfera se dibuja unos segundos sin problemas");

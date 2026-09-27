@@ -50,7 +50,7 @@ typedef struct {
     /* Cuenta */
     GtkWidget *key, *name, *profile_pw, *stop;
     /* Pantalla */
-    GtkWidget *style, *anim, *subtitles, *face_symbols;
+    GtkWidget *mode, *mode_help, *only_talking, *style, *anim, *subtitles, *face_symbols;
     /* Voz y audio */
     GtkWidget *volume, *voice, *mic, *out, *sensitivity, *end_silence, *duck;
     TtsVoice *voices;
@@ -375,10 +375,36 @@ static void on_style_changed(GtkComboBox *c, gpointer data)
     gtk_widget_set_sensitive(f->face_symbols, gtk_combo_box_get_active(c) >= SPHERE_STYLE_FACE_EYES);
 }
 
+/* Los modos de pantalla, los mismos que en Windows. */
+static const char *const MODES[DISPLAY_MODE_COUNT] = {"Pantalla completa", "Pantalla completa sin bordes",
+                                                      "Esfera flotante", "Ventana", "Minimizado"};
+static const char *const MODE_HELP[DISPLAY_MODE_COUNT] = {
+    "Ocupa toda la pantalla, encima de todo. Se aparta sola cuando Sokari abre algo. Esc la regresa a ventana.",
+    "Ocupa toda la pantalla; tus ventanas pueden ir encima. Esc la regresa a ventana.",
+    "Solo la esfera, transparente y encima de todo. Arrástrala a donde quieras; clic derecho para el menú. "
+    "Para que quede encima y recuerde dónde la dejaste, GNOME usa la extensión de Sokari.",
+    "Una ventana normal: muévela y agrándala. F11 = pantalla completa.",
+    "Como Ventana, pero arranca minimizada y no se asoma al hablarle.",
+};
+
+static void on_mode_changed(GtkComboBox *c, gpointer data)
+{
+    Form *f = data;
+    int m = gtk_combo_box_get_active(c);
+    gtk_label_set_text(GTK_LABEL(f->mode_help), MODE_HELP[m >= 0 && m < DISPLAY_MODE_COUNT ? m : 0]);
+}
+
 static GtkWidget *page_display(Form *f, const AppConfig *cfg)
 {
     GtkWidget *g = page_grid();
     int r = 0;
+    int mode = cfg->display_mode >= 0 && cfg->display_mode < DISPLAY_MODE_COUNT ? cfg->display_mode
+                                                                               : DISPLAY_WINDOWED_BORDERLESS;
+    f->mode = add_row(g, r++, "Modo de pantalla", choice(MODES, DISPLAY_MODE_COUNT, mode));
+    f->mode_help = add_wide(g, r++, help_label(MODE_HELP[mode]));
+    g_signal_connect(f->mode, "changed", G_CALLBACK(on_mode_changed), f);
+    f->only_talking =
+        add_wide(g, r++, check("Aparecer solo cuando le hablas (y esconderse al terminar)", cfg->show_only_talking));
     static const char *const STYLES[SPHERE_STYLE_COUNT] = {"Halo de puntos", "Líneas (beta)", "Cara: solo ojos (beta)",
                                                            "Cara: ojos y boca (beta)", "Cara: de puntos (beta)"};
     int style = cfg->sphere_style >= 0 && cfg->sphere_style < SPHERE_STYLE_COUNT ? cfg->sphere_style : 0;
@@ -399,7 +425,6 @@ static GtkWidget *page_display(Form *f, const AppConfig *cfg)
     gtk_box_pack_start(GTK_BOX(row), try_anim, FALSE, FALSE, 0);
     add_row(g, r++, "Al aparecer y desaparecer", row);
     f->subtitles = add_wide(g, r++, check("Mostrar lo que dices y lo que contesto", cfg->subtitles));
-    add_wide(g, r++, help_label("F11 en la ventana de Sokari: pantalla completa (Esc la regresa)."));
     return g;
 }
 
@@ -871,6 +896,9 @@ static bool save(Form *f)
     int anim = gtk_combo_box_get_active(GTK_COMBO_BOX(f->anim));
     cfg.appear_anim = anim >= 0 && anim < SPHERE_ANIM_COUNT ? anim : 0;
     cfg.subtitles = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->subtitles));
+    int mode = gtk_combo_box_get_active(GTK_COMBO_BOX(f->mode));
+    cfg.display_mode = mode >= 0 && mode < DISPLAY_MODE_COUNT ? mode : DISPLAY_WINDOWED_BORDERLESS;
+    cfg.show_only_talking = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->only_talking));
     cfg.volume = (int)gtk_range_get_value(GTK_RANGE(f->volume));
     set_str(&cfg.voice, xstrdup(chosen_voice(f)));
     const char *mic = gtk_combo_box_get_active_id(GTK_COMBO_BOX(f->mic));
@@ -921,6 +949,11 @@ static void on_response(GtkDialog *d, int response, gpointer u)
     f->closed = true;
     gtk_widget_destroy(f->dialog);
     if (!f->busy) form_free(f);
+}
+
+bool settings_linux_is_open(void)
+{
+    return g_form != NULL;
 }
 
 void settings_linux_open(GtkWindow *parent, bool first_run, SettingsPage page)

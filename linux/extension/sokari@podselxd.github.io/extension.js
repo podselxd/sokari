@@ -19,7 +19,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 // Se publica en la conexión del Shell, que ya es dueña de org.gnome.Shell:
 // nadie más puede hacerse pasar por ella mientras el Shell corre.
 const OBJECT_PATH = '/org/gnome/Shell/Extensions/Sokari';
-const API_VERSION = 1;
+const API_VERSION = 2;
 
 const IFACE_XML = `<node>
   <interface name="io.github.podselxd.SokariShell1">
@@ -58,6 +58,15 @@ const IFACE_XML = `<node>
     <method name="SetClipboardFile">
       <arg type="s" direction="in" name="path"/>
       <arg type="s" direction="out" name="kind"/>
+    </method>
+    <method name="OwnWindow">
+      <arg type="s" direction="in" name="title"/>
+      <arg type="s" direction="in" name="action"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="b" direction="out" name="ok"/>
+      <arg type="i" direction="out" name="out_x"/>
+      <arg type="i" direction="out" name="out_y"/>
     </method>
     <method name="LaunchApp">
       <arg type="s" direction="in" name="desktop_id"/>
@@ -114,6 +123,7 @@ function windowInfo(win) {
         pid: win.get_pid(),
         focused: win.has_focus(),
         minimized: win.minimized,
+        above: win.is_above(),
         terminal: isTerminal(win),
     };
 }
@@ -167,7 +177,7 @@ const RESTORE_ORDER = ['image/png', 'image/jpeg', 'text/uri-list', 'x-special/gn
 class SokariService {
     constructor() {
         this._kbd = defaultSeat().create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
-        this._allowed = new Set();
+        this._allowed = new Map(); // quién llama (en el bus) -> su pid
         this._timeouts = new Set();
     }
 
@@ -216,7 +226,7 @@ class SokariService {
         try {
             const pid = await this._callerPid(sender);
             if (this._trusted(GLib.file_read_link(`/proc/${pid}/exe`))) {
-                this._allowed.add(sender);
+                this._allowed.set(sender, pid);
                 return true;
             }
         } catch (e) {
@@ -456,6 +466,33 @@ class SokariService {
             }
             clip.set_content(St.ClipboardType.CLIPBOARD, 'text/uri-list', textBytes(`${file.get_uri()}\r\n`));
             return ['uri-list'];
+        });
+    }
+
+    // Solo ventanas del propio Sokari (de su pid y con ese título), nunca de
+    // otros programas: la esfera flotante va encima de todo y en todos los
+    // escritorios, y regresa a donde la dejaste (en Wayland una app no puede
+    // ponerse encima ni moverse sola). Contesta dónde quedó.
+    OwnWindowAsync([title, action, x, y], invocation) {
+        this._reply(invocation, '(bii)', () => {
+            const pid = this._allowed.get(invocation.get_sender());
+            const win = global.get_window_actors().map(a => a.meta_window)
+                .find(w => w.get_pid() === pid && w.get_title() === title);
+            if (!win)
+                return [false, 0, 0];
+            if (action === 'above') {
+                win.make_above();
+                win.stick();
+            } else if (action === 'normal') {
+                win.unmake_above();
+                win.unstick();
+            } else if (action === 'move') {
+                win.move_frame(true, x, y);
+            } else if (action !== 'where') {
+                return [false, 0, 0];
+            }
+            const r = win.get_frame_rect();
+            return [true, r.x, r.y];
         });
     }
 

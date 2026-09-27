@@ -55,6 +55,14 @@ typedef struct {
     /* Un clic en la esfera la calla o le habla; arrastrarla mueve la ventana. */
     bool pressed;
     double press_x, press_y;
+    /* El modo de pantalla que tiene la ventana (DisplayMode) y el que pide
+       Configuración; «Aparecer solo cuando le hablas». */
+    int mode, want_mode;
+    bool only_talking, old_extension_told;
+    int last_state;
+    guint hide_timer, where_timer, where_tries;
+    int where_x, where_y;
+    GtkWidget *popup; /* el menú del clic derecho */
     /* Entrar y salir de la pantalla: la ventana se esconde cuando la esfera
        terminó de irse (on_tick). fresh: se acaba de mostrar, el reloj
        arranca de nuevo. */
@@ -105,9 +113,12 @@ static void refresh_status(void)
     gtk_label_set_text(GTK_LABEL(U.status), t);
 }
 
+static void follow_state(int st);
+
 static gboolean on_state_idle(gpointer u)
 {
     refresh_status();
+    follow_state(g_atomic_int_get(&g_state));
     return G_SOURCE_REMOVE;
 }
 
@@ -301,12 +312,23 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer u)
     sphere_set_presence(U.sr, U.ap.anim, U.ap.presence);
     bool face = U.face_on && sphere_style_is_face((SphereStyle)style);
     sphere_set_face(U.sr, face ? &U.pose : NULL);
+    /* Flotante: sin fondo. El alfa sale de la intensidad, ya multiplicado
+       (como lo quiere cairo): solo se ve la esfera, sin el cuadro negro. */
+    bool flo = U.mode == DISPLAY_WINDOWED_BORDERLESS;
     sphere_render(U.sr, t, U.angle, U.voice_t, face ? &U.draw : &U.cur, U.voice, U.pulse, (SphereStyle)style,
-                  (uint32_t *)cairo_image_surface_get_data(U.surf), cairo_image_surface_get_stride(U.surf) / 4, false);
+                  (uint32_t *)cairo_image_surface_get_data(U.surf), cairo_image_surface_get_stride(U.surf) / 4, flo);
     cairo_surface_mark_dirty(U.surf);
 
-    cairo_set_source_rgb(cr, 0.02, 0.016, 0.047);
-    cairo_paint(cr);
+    if (flo) {
+        cairo_save(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    } else {
+        cairo_set_source_rgb(cr, 0.02, 0.016, 0.047);
+        cairo_paint(cr);
+    }
     /* Del tamaño de siempre; lo que sobra del lienzo es para las ondas. */
     double dst = (double)side * canvas / base;
     double scale = dst / canvas;
@@ -324,12 +346,113 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer u)
     return FALSE;
 }
 
-/* Un clic en la esfera: si habla o piensa, la calla; si no, te escucha. */
+/* ------------------------------------------- la esfera flotante en GNOME --- */
+
+/* En Wayland la ventana no puede ponerse encima de todo ni moverse sola: se
+   lo pide a la extensión de Sokari, que solo toca ventanas de Sokari. */
+static bool own_window(const char *action, int x, int y, int *out_x, int *out_y)
+{
+    bool ok = false;
+    GnomeStatus st = gnome_own_window("Sokari", action, x, y, out_x, out_y, &ok);
+    if (st == GN_NO_EXTENSION && !U.old_extension_told && gnome_desktop()) {
+        U.old_extension_told = true;
+        app_notify("Sokari", "Para que la esfera flotante quede encima de todo y recuerde dónde la dejaste, cierra "
+                             "sesión y vuelve a entrar una vez (así GNOME carga la extensión nueva de Sokari).");
+    }
+    return st == GN_OK && ok;
+}
+
+/* La flotante: encima de todo y donde la dejaste la última vez. Pantalla
+   completa: encima de todo. */
+static gboolean place_window(gpointer u)
+{
+    if (!U.win || !gtk_widget_get_visible(U.win)) return G_SOURCE_REMOVE;
+    if (U.mode == DISPLAY_FULLSCREEN) own_window("above", 0, 0, NULL, NULL);
+    if (U.mode != DISPLAY_WINDOWED_BORDERLESS) return G_SOURCE_REMOVE;
+    AppConfig c = config_snapshot();
+    int x = c.orb_x, y = c.orb_y;
+    SecureZeroMemory(c.groq_api_key, strlen(c.groq_api_key));
+    config_free(&c);
+    if (x >= 0 && y >= 0) own_window("move", x, y, NULL, NULL);
+    own_window("above", 0, 0, NULL, NULL);
+    return G_SOURCE_REMOVE;
+}
+
+/* Dónde quedó: se guarda para la próxima vez. */
+static void remember_place(void)
+{
+    if (!U.win || U.mode != DISPLAY_WINDOWED_BORDERLESS || !gtk_widget_get_visible(U.win)) return;
+    int x = 0, y = 0;
+    if (own_window("where", 0, 0, &x, &y)) config_set_orb_pos(x, y);
+}
+
+/* Después de arrastrarla: GNOME la mueve por su cuenta, así que se pregunta
+   dónde va hasta que deja de moverse. */
+static gboolean where_tick(gpointer u)
+{
+    int x = 0, y = 0;
+    bool ok = U.win && own_window("where", 0, 0, &x, &y);
+    if (ok && x == U.where_x && y == U.where_y) {
+        config_set_orb_pos(x, y);
+        U.where_timer = 0;
+        return G_SOURCE_REMOVE;
+    }
+    U.where_x = x;
+    U.where_y = y;
+    if (!ok || ++U.where_tries > 30) {
+        U.where_timer = 0;
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+static void watch_place(void)
+{
+    if (U.mode != DISPLAY_WINDOWED_BORDERLESS) return;
+    U.where_tries = 0;
+    U.where_x = U.where_y = -1;
+    if (!U.where_timer) U.where_timer = g_timeout_add(700, where_tick, NULL);
+}
+
+/* Solo el círculo de la esfera recibe clics: lo transparente de alrededor
+   los deja pasar a lo que está abajo. */
+static void update_input_shape(void)
+{
+    if (!U.win || !U.area || !gtk_widget_get_realized(U.win)) return;
+    if (U.mode != DISPLAY_WINDOWED_BORDERLESS) {
+        gtk_widget_input_shape_combine_region(U.win, NULL);
+        return;
+    }
+    int ax = 0, ay = 0;
+    gtk_widget_translate_coordinates(U.area, U.win, 0, 0, &ax, &ay);
+    int W = gtk_widget_get_allocated_width(U.area), H = gtk_widget_get_allocated_height(U.area);
+    double r = (W < H ? W : H) * 0.47, cx = ax + W / 2.0, cy = ay + H / 2.0;
+    cairo_region_t *reg = cairo_region_create();
+    for (int y = (int)(cy - r); y < (int)(cy + r); y += 4) {
+        double dy = y + 2 - cy, half = sqrt(fmax(0, r * r - dy * dy));
+        cairo_rectangle_int_t row = {(int)(cx - half), y, (int)(2 * half) + 1, 4};
+        cairo_region_union_rectangle(reg, &row);
+    }
+    gtk_widget_input_shape_combine_region(U.win, reg);
+    cairo_region_destroy(reg);
+}
+
+static void on_area_allocate(GtkWidget *w, GdkRectangle *a, gpointer u)
+{
+    update_input_shape();
+}
+
 /* Soltar sin haberla arrastrado es un clic: la calla si está hablando o
    pensando, y si no, le habla. Si se arrastra más de 6 px, mueve la ventana
    (en Wayland una app no puede moverse sola: se lo pide a GNOME). */
+static void popup_menu(GdkEvent *e);
+
 static gboolean on_sphere_press(GtkWidget *w, GdkEventButton *e, gpointer u)
 {
+    if (e->type == GDK_BUTTON_PRESS && e->button == 3) {
+        popup_menu((GdkEvent *)e);
+        return TRUE;
+    }
     if (e->type != GDK_BUTTON_PRESS || e->button != 1) return FALSE;
     U.pressed = true;
     U.press_x = e->x_root;
@@ -344,6 +467,7 @@ static gboolean on_sphere_motion(GtkWidget *w, GdkEventMotion *e, gpointer u)
     if (dx * dx + dy * dy < 36) return TRUE;
     U.pressed = false;
     gtk_window_begin_move_drag(GTK_WINDOW(U.win), 1, (gint)e->x_root, (gint)e->y_root, e->time);
+    watch_place();
     return TRUE;
 }
 
@@ -360,8 +484,13 @@ static gboolean on_sphere_release(GtkWidget *w, GdkEventButton *e, gpointer u)
 /* El fondo (alrededor de la esfera y los subtítulos) también mueve la ventana. */
 static gboolean on_background_press(GtkWidget *w, GdkEventButton *e, gpointer u)
 {
+    if (e->type == GDK_BUTTON_PRESS && e->button == 3) {
+        popup_menu((GdkEvent *)e);
+        return TRUE;
+    }
     if (e->type != GDK_BUTTON_PRESS || e->button != 1) return FALSE;
     gtk_window_begin_move_drag(GTK_WINDOW(U.win), 1, (gint)e->x_root, (gint)e->y_root, e->time);
+    watch_place();
     return TRUE;
 }
 
@@ -374,6 +503,8 @@ static bool subtitles_on(void)
     U.want_style = cfg.sphere_style;
     U.anim = cfg.appear_anim;
     U.face_symbols = cfg.face_symbols;
+    U.want_mode = cfg.display_mode >= 0 && cfg.display_mode < DISPLAY_MODE_COUNT ? cfg.display_mode : DISPLAY_WINDOWED;
+    U.only_talking = cfg.show_only_talking;
     SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
     config_free(&cfg);
     return on;
@@ -426,10 +557,14 @@ void ui_linux_preview_appear(int anim)
     }
 }
 
+static gboolean apply_mode_idle(gpointer u);
+
 void ui_linux_settings_saved(bool first_run)
 {
     gtk_widget_set_visible(U.sub_user, subtitles_on());
     gtk_widget_set_visible(U.sub_sokari, subtitles_on());
+    /* Después de que se cierre Configuración: puede tocar rehacer la ventana. */
+    if (U.want_mode != U.mode) g_idle_add(apply_mode_idle, NULL);
     if (U.voice_started) voice_settings_changed();
     else start_voice(first_run);
 }
@@ -456,7 +591,82 @@ static void show_window(void)
         sphere_appear_enter(&U.ap, (SphereAnim)U.anim, hidden);
     if (hidden) U.fresh = true;
     gtk_widget_show(U.win);
-    gtk_window_present(GTK_WINDOW(U.win));
+    switch (U.mode) {
+    case DISPLAY_WINDOWED_BORDERLESS:
+        /* La flotante no se roba el teclado: solo aparece, encima de todo.
+           GNOME la acomoda al mostrarla; se le pide su lugar un par de veces
+           por si la acomodó después. */
+        if (hidden) {
+            g_timeout_add(250, place_window, NULL);
+            g_timeout_add(900, place_window, NULL);
+        }
+        break;
+    case DISPLAY_FULLSCREEN:
+    case DISPLAY_FULLSCREEN_BORDERLESS:
+        U.fullscreen = true;
+        gtk_window_fullscreen(GTK_WINDOW(U.win));
+        gtk_window_present(GTK_WINDOW(U.win));
+        if (hidden) g_timeout_add(250, place_window, NULL);
+        break;
+    default: gtk_window_present(GTK_WINDOW(U.win));
+    }
+}
+
+/* Se va con su animación y la ventana se esconde al terminar (on_tick). */
+static void hide_window(void)
+{
+    if (!U.win || !gtk_widget_get_visible(U.win)) return;
+    remember_place();
+    if (sphere_appear_leave(&U.ap, (SphereAnim)U.anim)) gtk_widget_hide(U.win);
+}
+
+/* «Aparecer solo cuando le hablas»: aparece al hablarle y, un momento
+   después de terminar, se va. Con Configuración abierta se queda. */
+static gboolean hide_after_talk(gpointer u)
+{
+    U.hide_timer = 0;
+    if (g_atomic_int_get(&g_state) == JV_IDLE && !settings_linux_is_open()) hide_window();
+    return G_SOURCE_REMOVE;
+}
+
+static void follow_state(int st)
+{
+    int prev = U.last_state;
+    U.last_state = st;
+    if (!U.only_talking || U.mode == DISPLAY_MINIMIZED || !U.win) return;
+    if (st != JV_IDLE && prev == JV_IDLE) {
+        if (U.hide_timer) g_source_remove(U.hide_timer);
+        U.hide_timer = 0;
+        if (!gtk_widget_get_visible(U.win) || U.ap.dir < 0) show_window();
+    } else if (st == JV_IDLE && prev != JV_IDLE && !U.hide_timer) {
+        U.hide_timer = g_timeout_add(2500, hide_after_talk, NULL);
+    }
+}
+
+static GMenuModel *app_menu(void);
+
+/* Sokari va a abrir o a usar otra ventana: en pantalla completa (encima de
+   todo) se aparta para que se vea. */
+static gboolean on_yield_idle(gpointer u)
+{
+    if (U.mode == DISPLAY_FULLSCREEN) hide_window();
+    return G_SOURCE_REMOVE;
+}
+
+void ui_post_yield(void)
+{
+    g_idle_add(on_yield_idle, NULL);
+}
+
+/* El clic derecho: el mismo menú de arriba y de ☰ (en la flotante no hay barra). */
+static void popup_menu(GdkEvent *e)
+{
+    if (!U.popup) {
+        U.popup = gtk_menu_new_from_model(app_menu());
+        gtk_widget_insert_action_group(U.popup, "app", G_ACTION_GROUP(U.app));
+        gtk_menu_attach_to_widget(GTK_MENU(U.popup), U.area, NULL);
+    }
+    gtk_menu_popup_at_pointer(GTK_MENU(U.popup), e);
 }
 
 static void act_show(GSimpleAction *a, GVariant *p, gpointer u)
@@ -484,6 +694,7 @@ static void act_mesh(GSimpleAction *a, GVariant *p, gpointer u)
 static void act_quit(GSimpleAction *a, GVariant *p, gpointer u)
 {
     log_msg("Sokari: salir desde la ventana.");
+    remember_place();
     if (U.voice_started) voice_stop();
     voice_mesh_stop();
     U.voice_started = false;
@@ -657,13 +868,16 @@ static const char CSS[] =
     "window.sokari, window.sokari .fondo { background-color: #05040c; }"
     ".sokari .tu { color: #8f93b3; font-size: 13pt; }"
     ".sokari .ella { color: #ece8ff; font-size: 17pt; }"
-    ".sokari .estado { color: #9d95ff; font-size: 11pt; }";
+    ".sokari .estado { color: #9d95ff; font-size: 11pt; }"
+    /* La esfera flotante: sin fondo; las letras con sombra para leerse encima de lo que sea. */
+    "window.sokari.flotante, window.sokari.flotante .fondo { background-color: transparent; }"
+    ".sokari.flotante .ella, .sokari.flotante .tu { text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.8); }";
 
 static gboolean on_delete(GtkWidget *w, GdkEvent *e, gpointer u)
 {
     /* Cerrar la ventana no cierra a Sokari: sigue escuchando. La esfera se va
        con su animación y la ventana se esconde al terminar (on_tick). */
-    if (sphere_appear_leave(&U.ap, (SphereAnim)U.anim)) gtk_widget_hide(w);
+    hide_window();
     if (!U.hide_notice_shown) {
         U.hide_notice_shown = true;
         app_notify("Sokari", "Sigo escuchando aunque cerraste la ventana. Para verme otra vez, ábreme de nuevo; para "
@@ -797,20 +1011,42 @@ char *ui_window_problems(void)
     return problem;
 }
 
+/* La ventana según el modo: la flotante es solo la esfera (sin marco, sin
+   fondo); las demás, la ventana de siempre con su barra. */
 static void build_window(void)
 {
+    static bool styled;
     sphere_appear_init(&U.ap);
-    GtkCssProvider *css = gtk_css_provider_new();
-    gtk_css_provider_load_from_data(css, CSS, -1, NULL);
-    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(css),
-                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(css);
-    g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", TRUE, NULL);
+    if (!styled) {
+        styled = true;
+        GtkCssProvider *css = gtk_css_provider_new();
+        gtk_css_provider_load_from_data(css, CSS, -1, NULL);
+        gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(css),
+                                                  GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(css);
+        g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", TRUE, NULL);
+    }
+    bool flo = U.mode == DISPLAY_WINDOWED_BORDERLESS;
 
     U.win = gtk_application_window_new(U.app);
     gtk_window_set_title(GTK_WINDOW(U.win), "Sokari");
-    gtk_window_set_default_size(GTK_WINDOW(U.win), 520, 640);
+    gtk_window_set_default_size(GTK_WINDOW(U.win), flo ? 300 : 520, flo ? 360 : 640);
     gtk_style_context_add_class(gtk_widget_get_style_context(U.win), "sokari");
+    if (flo) {
+        gtk_style_context_add_class(gtk_widget_get_style_context(U.win), "flotante");
+        gtk_window_set_decorated(GTK_WINDOW(U.win), FALSE);
+        gtk_window_set_resizable(GTK_WINDOW(U.win), FALSE);
+        gtk_widget_set_app_paintable(U.win, TRUE);
+        /* Con alfa: sin esto, en X11 lo transparente sale negro. */
+        GdkVisual *rgba = gdk_screen_get_rgba_visual(gtk_widget_get_screen(U.win));
+        if (rgba) gtk_widget_set_visual(U.win, rgba);
+        /* En X11 alcanza con esto; en Wayland lo hace la extensión (place_floating). */
+        gtk_window_set_keep_above(GTK_WINDOW(U.win), TRUE);
+        gtk_window_stick(GTK_WINDOW(U.win));
+        gtk_window_set_skip_taskbar_hint(GTK_WINDOW(U.win), TRUE);
+        gtk_window_set_skip_pager_hint(GTK_WINDOW(U.win), TRUE);
+        gtk_window_set_focus_on_map(GTK_WINDOW(U.win), FALSE);
+    }
     size_t n = 0;
     const void *png = res_data(IDR_ICON_PNG, &n);
     if (png) {
@@ -820,13 +1056,13 @@ static void build_window(void)
         g_object_unref(ld);
     }
 
-    gtk_window_set_titlebar(GTK_WINDOW(U.win), titlebar_new());
+    if (!flo) gtk_window_set_titlebar(GTK_WINDOW(U.win), titlebar_new());
 
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, flo ? 2 : 8);
     gtk_style_context_add_class(gtk_widget_get_style_context(box), "fondo");
-    gtk_container_set_border_width(GTK_CONTAINER(box), 16);
+    gtk_container_set_border_width(GTK_CONTAINER(box), flo ? 0 : 16);
     U.area = gtk_drawing_area_new();
-    gtk_widget_set_size_request(U.area, 220, 220);
+    gtk_widget_set_size_request(U.area, flo ? 280 : 220, flo ? 280 : 220);
     gtk_widget_set_vexpand(U.area, TRUE);
     gtk_widget_add_events(U.area, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_BUTTON1_MOTION_MASK);
     g_signal_connect(U.area, "draw", G_CALLBACK(on_draw), NULL);
@@ -834,6 +1070,7 @@ static void build_window(void)
     g_signal_connect(U.area, "motion-notify-event", G_CALLBACK(on_sphere_motion), NULL);
     g_signal_connect(U.area, "button-release-event", G_CALLBACK(on_sphere_release), NULL);
     gtk_widget_add_tick_callback(U.area, on_tick, NULL, NULL);
+    g_signal_connect(U.area, "size-allocate", G_CALLBACK(on_area_allocate), NULL);
     gtk_box_pack_start(GTK_BOX(box), U.area, TRUE, TRUE, 0);
     U.sub_sokari = label("ella", true);
     U.sub_user = label("tu", true);
@@ -842,6 +1079,8 @@ static void build_window(void)
     gtk_box_pack_start(GTK_BOX(box), U.sub_user, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), U.status, FALSE, FALSE, 4);
     GtkWidget *back = gtk_event_box_new();
+    /* Sin ventana propia que pintar: solo recibe los clics del fondo. */
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(back), FALSE);
     gtk_container_add(GTK_CONTAINER(back), box);
     g_signal_connect(back, "button-press-event", G_CALLBACK(on_background_press), NULL);
     gtk_container_add(GTK_CONTAINER(U.win), back);
@@ -854,6 +1093,42 @@ static void build_window(void)
     bool subs = subtitles_on();
     gtk_widget_set_visible(U.sub_user, subs);
     gtk_widget_set_visible(U.sub_sokari, subs);
+    /* En la flotante, el estado («Di Hey Sokari…») estorba: solo la esfera. */
+    gtk_widget_set_no_show_all(U.status, flo);
+    gtk_widget_set_visible(U.status, !flo);
+}
+
+/* Otro modo de pantalla: a la flotante (o de ella) se rehace la ventana; los
+   demás solo cambian de pantalla completa o se minimizan. */
+static gboolean apply_mode_idle(gpointer u)
+{
+    if (!U.win || U.want_mode == U.mode) return G_SOURCE_REMOVE;
+    bool was_flo = U.mode == DISPLAY_WINDOWED_BORDERLESS, flo = U.want_mode == DISPLAY_WINDOWED_BORDERLESS;
+    if (was_flo != flo) {
+        remember_place();
+        if (U.where_timer) g_source_remove(U.where_timer);
+        U.where_timer = 0;
+        if (U.popup) gtk_widget_destroy(U.popup);
+        U.popup = NULL;
+        GtkWidget *old = U.win;
+        U.win = NULL;
+        gtk_widget_destroy(old);
+        U.mode = U.want_mode;
+        build_window();
+        show_window();
+        return G_SOURCE_REMOVE;
+    }
+    U.mode = U.want_mode;
+    U.fullscreen = U.mode == DISPLAY_FULLSCREEN || U.mode == DISPLAY_FULLSCREEN_BORDERLESS;
+    if (U.fullscreen) {
+        gtk_window_fullscreen(GTK_WINDOW(U.win));
+        g_timeout_add(250, place_window, NULL);
+    } else {
+        own_window("normal", 0, 0, NULL, NULL);
+        gtk_window_unfullscreen(GTK_WINDOW(U.win));
+        if (U.mode == DISPLAY_MINIMIZED) gtk_window_iconify(GTK_WINDOW(U.win));
+    }
+    return G_SOURCE_REMOVE;
 }
 
 /* Lo primero que hace la Sokari que se queda corriendo. */
@@ -868,6 +1143,8 @@ static void startup(bool from_autostart)
     g_simple_action_set_state(G_SIMPLE_ACTION(mute), g_variant_new_boolean(config_mic_muted()));
     const char *accels_talk[] = {"<Primary>h", NULL};
     gtk_application_set_accels_for_action(U.app, "app.hablar", accels_talk);
+    subtitles_on();
+    U.mode = U.want_mode;
     build_window();
     tray_init();
     autostart_refresh();
@@ -881,6 +1158,7 @@ static void startup(bool from_autostart)
     config_free(&cfg);
     LaunchKind kind = launch_kind(has_key(), from_autostart, false);
     if (kind != LAUNCH_DIRECT || !from_autostart) show_window();
+    if (U.mode == DISPLAY_MINIMIZED) gtk_window_iconify(GTK_WINDOW(U.win));
     if (kind == LAUNCH_FIRST_RUN) settings_open(true);
     else start_voice(false);
 }
