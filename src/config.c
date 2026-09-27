@@ -32,6 +32,29 @@ int appear_anim_from_key(const char *key)
     return 0;
 }
 
+char *config_clean_ai_order(const char *text)
+{
+    static const char *const KNOWN[] = {"groq", "nvidia", "deepseek", "openrouter", "glm"};
+    StrBuf sb;
+    sb_init(&sb);
+    char *low = str_lower(text ? text : ""), *ctx = NULL;
+    for (char *tok = strtok_s(low, ", ;", &ctx); tok; tok = strtok_s(NULL, ", ;", &ctx)) {
+        for (size_t i = 0; i < sizeof KNOWN / sizeof *KNOWN; i++) {
+            char pat[24];
+            snprintf(pat, sizeof pat, ",%s,", KNOWN[i]);
+            char *have = str_printf(",%s,", sb.data ? sb.data : "");
+            if (!strcmp(tok, KNOWN[i]) && !strstr(have, pat)) sb_appendf(&sb, "%s%s", sb.len ? "," : "", KNOWN[i]);
+            free(have);
+        }
+    }
+    free(low);
+    if (!sb.len) {
+        sb_free(&sb);
+        return xstrdup(DEFAULT_AI_ORDER);
+    }
+    return sb.data;
+}
+
 const char *display_mode_key(int mode)
 {
     if (mode < 0 || mode >= DISPLAY_MODE_COUNT) mode = DISPLAY_FULLSCREEN_BORDERLESS;

@@ -23,6 +23,7 @@
 #include "config.h"
 #include "linux/gnome.h"
 #include "linux/linux.h"
+#include "linux/settings_linux.h"
 #include "log.h"
 #include "mesh.h"
 #include "resource.h"
@@ -38,7 +39,7 @@
 
 typedef struct {
     GtkApplication *app;
-    GtkWidget *win, *area, *status, *sub_user, *sub_sokari, *settings;
+    GtkWidget *win, *area, *status, *sub_user, *sub_sokari;
     AppIndicator *tray;
     GtkWidget *tray_mute;
     SphereRenderer *sr;
@@ -329,64 +330,12 @@ static void request_talk(void)
 
 /* ------------------------------------------------------ Configuración --- */
 
-typedef struct {
-    GtkWidget *key, *name, *mic, *out, *volume, *subtitles, *duck, *full, *autostart, *style, *anim, *city;
-    GtkWidget *skills[16]; /* las skills locales, en el orden de skills_get */
-    bool first_run;
-} SettingsForm;
+/* La Configuración está en settings_linux.c; esto es lo que le pide a la ventana. */
 
-/* Abre una carpeta o un archivo con la app de tu escritorio. */
-static void open_path(const wchar_t *path)
+void ui_linux_preview_appear(int anim)
 {
-    char *p = wide_to_utf8(path);
-    GFile *f = g_file_new_for_path(p);
-    char *uri = g_file_get_uri(f);
-    GError *err = NULL;
-    if (!g_app_info_launch_default_for_uri(uri, NULL, &err)) {
-        log_msg("No pude abrir %s: %s", p, err ? err->message : "?");
-        g_clear_error(&err);
-    }
-    g_free(uri);
-    g_object_unref(f);
-    free(p);
-}
-
-static char *skills_text(void)
-{
-    int n;
-    char *names = skills_user_summary(&n);
-    char *t = n ? str_printf("Tus skills (%d): %s. Cada una es un archivo de texto en la carpeta de skills.", n, names)
-                : xstrdup("Todavía no tienes skills tuyas. Crea una con «Nueva skill» o diciéndole «crea una rutina "
-                          "que abra Spotify cuando diga modo estudio».");
-    free(names);
-    return t;
-}
-
-static void on_open_skills(GtkButton *b, gpointer label)
-{
-    wchar_t *dir = skills_user_dir();
-    ensure_dir(dir);
-    open_path(dir);
-    free(dir);
-}
-
-static void on_new_skill(GtkButton *b, gpointer label)
-{
-    wchar_t *path = skills_new_template();
-    if (path) open_path(path);
-    free(path);
-    char *t = skills_text();
-    gtk_label_set_text(GTK_LABEL(label), t);
-    free(t);
-}
-
-static const char *const APPEAR_NAMES[SPHERE_ANIM_COUNT] = {"Materializarse", "Deslizarse", "Zoom", "Ninguna"};
-
-/* Probar: con la ventana a la vista, la esfera sale y vuelve; si estaba
-   cerrada, se asoma y se va. */
-static void on_try_anim(GtkButton *b, gpointer combo)
-{
-    int anim = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
+    /* Con la ventana a la vista, la esfera sale y vuelve; si estaba cerrada,
+       se asoma y se va. */
     if (!U.win || anim < 0 || anim >= SPHERE_ANIM_NONE) return;
     bool shown = gtk_widget_get_visible(U.win) && U.ap.dir >= 0;
     sphere_appear_test(&U.ap, (SphereAnim)anim, shown);
@@ -396,346 +345,23 @@ static void on_try_anim(GtkButton *b, gpointer combo)
     }
 }
 
-/* Con «Ninguna» no hay nada que probar. */
-static void on_anim_changed(GtkComboBox *c, gpointer button)
+void ui_linux_settings_saved(bool first_run)
 {
-    gtk_widget_set_sensitive(GTK_WIDGET(button), gtk_combo_box_get_active(c) < SPHERE_ANIM_NONE);
+    gtk_widget_set_visible(U.sub_user, subtitles_on());
+    gtk_widget_set_visible(U.sub_sokari, subtitles_on());
+    if (U.voice_started) voice_settings_changed();
+    else start_voice(first_run);
 }
 
-static GtkWidget *add_row(GtkGrid *g, int row, const char *label, GtkWidget *w)
+void ui_linux_settings_cancelled(bool first_run)
 {
-    GtkWidget *l = gtk_label_new(label);
-    gtk_label_set_xalign(GTK_LABEL(l), 0);
-    gtk_grid_attach(g, l, 0, row, 1, 1);
-    gtk_widget_set_hexpand(w, TRUE);
-    gtk_grid_attach(g, w, 1, row, 1, 1);
-    return w;
-}
-
-static GtkWidget *device_combo(bool mics, const char *current)
-{
-    GtkWidget *c = gtk_combo_box_text_new();
-    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(c), "", mics ? "El predeterminado" : "La predeterminada");
-    char **names = NULL;
-    int n = mics ? mic_list_devices(&names) : speaker_list_devices(&names);
-    for (int i = 0; i < n; i++) gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(c), names[i], names[i]);
-    free_string_list(names, n);
-    if (!gtk_combo_box_set_active_id(GTK_COMBO_BOX(c), current && *current ? current : ""))
-        gtk_combo_box_set_active(GTK_COMBO_BOX(c), 0);
-    return c;
-}
-
-static GtkWidget *check(const char *label, bool on)
-{
-    GtkWidget *c = gtk_check_button_new_with_label(label);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(c), on);
-    return c;
-}
-
-static void on_settings_response(GtkDialog *d, int response, gpointer u)
-{
-    SettingsForm *f = u;
-    if (response == GTK_RESPONSE_ACCEPT) {
-        const char *key = gtk_entry_get_text(GTK_ENTRY(f->key));
-        char *k = str_trim(key);
-        if (!*k) {
-            free(k);
-            GtkWidget *m = gtk_message_dialog_new(GTK_WINDOW(d), GTK_DIALOG_MODAL, GTK_MESSAGE_INFO, GTK_BUTTONS_OK,
-                                                  "Me falta tu API key de Groq.");
-            gtk_message_dialog_format_secondary_text(
-                GTK_MESSAGE_DIALOG(m), "Sácala gratis en console.groq.com/keys y pégala aquí (empieza con gsk_).");
-            gtk_dialog_run(GTK_DIALOG(m));
-            gtk_widget_destroy(m);
-            return;
-        }
-        AppConfig cfg = config_snapshot();
-        SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
-        free(cfg.groq_api_key);
-        cfg.groq_api_key = k;
-        free(cfg.user_name);
-        cfg.user_name = str_trim(gtk_entry_get_text(GTK_ENTRY(f->name)));
-        free(cfg.mic_name);
-        const char *mic = gtk_combo_box_get_active_id(GTK_COMBO_BOX(f->mic));
-        cfg.mic_name = xstrdup(mic ? mic : "");
-        free(cfg.output_name);
-        const char *out = gtk_combo_box_get_active_id(GTK_COMBO_BOX(f->out));
-        cfg.output_name = xstrdup(out ? out : "");
-        cfg.volume = (int)gtk_range_get_value(GTK_RANGE(f->volume));
-        cfg.subtitles = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->subtitles));
-        cfg.duck = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->duck));
-        cfg.full_access = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->full));
-        cfg.autostart = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->autostart));
-        cfg.sphere_style = gtk_combo_box_get_active(GTK_COMBO_BOX(f->style)) == 1 ? 1 : 0;
-        U.want_style = cfg.sphere_style;
-        int anim = gtk_combo_box_get_active(GTK_COMBO_BOX(f->anim));
-        cfg.appear_anim = anim >= 0 && anim < SPHERE_ANIM_COUNT ? anim : 0;
-        free(cfg.city);
-        cfg.city = str_trim(gtk_entry_get_text(GTK_ENTRY(f->city)));
-        StrBuf off;
-        sb_init(&off);
-        for (int i = 0; i < skills_count() && i < 16; i++)
-            if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->skills[i])))
-                sb_appendf(&off, "%s%s", off.len ? "," : "", skills_get(i)->id);
-        free(cfg.skills_off);
-        cfg.skills_off = off.data ? sb_steal(&off) : xstrdup("");
-        sb_free(&off);
-        config_apply(&cfg);
-        bool saved = config_save();
-        autostart_set(cfg.autostart);
-        speaker_set_device(cfg.output_name);
-        SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
-        config_free(&cfg);
-        if (!saved) log_msg("Configuración: no pude guardarla.");
-        gtk_widget_set_visible(U.sub_user, subtitles_on());
-        gtk_widget_set_visible(U.sub_sokari, subtitles_on());
-        if (U.voice_started) voice_settings_changed();
-        else start_voice(f->first_run);
-    } else if (f->first_run && !has_key()) {
+    if (first_run && !has_key())
         app_notify("Sokari", "Sin tu API key de Groq todavía no puedo contestarte. Abre Configuración cuando la tengas.");
-    }
-    gtk_widget_destroy(GTK_WIDGET(d));
-    U.settings = NULL;
-    free(f);
 }
 
 static void settings_open(bool first_run)
 {
-    if (U.settings) {
-        gtk_window_present(GTK_WINDOW(U.settings));
-        return;
-    }
-    SettingsForm *f = xcalloc(1, sizeof *f);
-    f->first_run = first_run;
-    GtkWidget *d = gtk_dialog_new_with_buttons("Configuración de Sokari", GTK_WINDOW(U.win),
-                                               GTK_DIALOG_DESTROY_WITH_PARENT | GTK_DIALOG_USE_HEADER_BAR, "Cancelar",
-                                               GTK_RESPONSE_CANCEL, "Guardar", GTK_RESPONSE_ACCEPT, NULL);
-    U.settings = d;
-    gtk_dialog_set_default_response(GTK_DIALOG(d), GTK_RESPONSE_ACCEPT);
-    GtkWidget *box = gtk_dialog_get_content_area(GTK_DIALOG(d));
-    gtk_container_set_border_width(GTK_CONTAINER(box), 18);
-    gtk_box_set_spacing(GTK_BOX(box), 12);
-    if (first_run) {
-        GtkWidget *hi = gtk_label_new(NULL);
-        gtk_label_set_markup(GTK_LABEL(hi), "<b>Para empezar, pega tu API key de Groq.</b> Es gratis: sácala en "
-                                            "<a href=\"https://console.groq.com/keys\">console.groq.com/keys</a>.");
-        gtk_label_set_line_wrap(GTK_LABEL(hi), TRUE);
-        gtk_label_set_xalign(GTK_LABEL(hi), 0);
-        gtk_box_pack_start(GTK_BOX(box), hi, FALSE, FALSE, 0);
-    }
-    GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 14);
-    gtk_box_pack_start(GTK_BOX(box), grid, TRUE, TRUE, 0);
-    AppConfig cfg = config_snapshot();
-    int r = 0;
-    f->key = add_row(GTK_GRID(grid), r++, "API key de Groq", gtk_entry_new());
-    gtk_entry_set_visibility(GTK_ENTRY(f->key), FALSE);
-    gtk_entry_set_placeholder_text(GTK_ENTRY(f->key), "gsk_…");
-    gtk_entry_set_text(GTK_ENTRY(f->key), cfg.groq_api_key);
-    gtk_entry_set_activates_default(GTK_ENTRY(f->key), TRUE);
-    f->name = add_row(GTK_GRID(grid), r++, "Cómo te llamas", gtk_entry_new());
-    gtk_entry_set_text(GTK_ENTRY(f->name), cfg.user_name);
-    f->mic = add_row(GTK_GRID(grid), r++, "Micrófono", device_combo(true, cfg.mic_name));
-    f->out = add_row(GTK_GRID(grid), r++, "Por dónde hablo", device_combo(false, cfg.output_name));
-    f->volume = add_row(GTK_GRID(grid), r++, "Volumen de mi voz",
-                        gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 100, 5));
-    gtk_range_set_value(GTK_RANGE(f->volume), cfg.volume);
-    f->style = add_row(GTK_GRID(grid), r++, "La esfera", gtk_combo_box_text_new());
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(f->style), "Halo de puntos");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(f->style), "Líneas (beta)");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(f->style), cfg.sphere_style == 1 ? 1 : 0);
-    /* Cómo entra y sale; Probar la muestra con la elegida, aunque no esté guardada. */
-    GtkWidget *anim_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    f->anim = gtk_combo_box_text_new();
-    for (int i = 0; i < SPHERE_ANIM_COUNT; i++)
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(f->anim), APPEAR_NAMES[i]);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(f->anim), cfg.appear_anim);
-    GtkWidget *try_anim = gtk_button_new_with_label("Probar");
-    gtk_widget_set_tooltip_text(try_anim, "La esfera sale y vuelve a entrar con la animación elegida.");
-    g_signal_connect(try_anim, "clicked", G_CALLBACK(on_try_anim), f->anim);
-    g_signal_connect(f->anim, "changed", G_CALLBACK(on_anim_changed), try_anim);
-    on_anim_changed(GTK_COMBO_BOX(f->anim), try_anim);
-    gtk_box_pack_start(GTK_BOX(anim_row), f->anim, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(anim_row), try_anim, FALSE, FALSE, 0);
-    add_row(GTK_GRID(grid), r++, "Al aparecer y desaparecer", anim_row);
-    f->subtitles = check("Mostrar lo que dices y lo que contesto", cfg.subtitles);
-    gtk_grid_attach(GTK_GRID(grid), f->subtitles, 0, r++, 2, 1);
-    f->duck = check("Bajar el volumen de la PC mientras te escucho", cfg.duck);
-    gtk_grid_attach(GTK_GRID(grid), f->duck, 0, r++, 2, 1);
-    f->full = check("Acceso completo: no te pregunto nada, salvo antes de borrar", cfg.full_access);
-    gtk_grid_attach(GTK_GRID(grid), f->full, 0, r++, 2, 1);
-    f->autostart = check("Abrir Sokari al iniciar tu sesión", autostart_is_enabled());
-    gtk_grid_attach(GTK_GRID(grid), f->autostart, 0, r++, 2, 1);
-
-    /* Skills locales: contestan sin IA (0 tokens). Dos columnas. */
-    GtkWidget *sk = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(sk), "<b>Skills</b>: contestan en tu PC, sin gastar nada de IA (0 tokens). "
-                                        "Lo que no entienden se lo pasan a la IA.");
-    gtk_label_set_line_wrap(GTK_LABEL(sk), TRUE);
-    gtk_label_set_xalign(GTK_LABEL(sk), 0);
-    gtk_widget_set_margin_top(sk, 8);
-    gtk_grid_attach(GTK_GRID(grid), sk, 0, r++, 2, 1);
-    int n = skills_count() < 16 ? skills_count() : 16, half = (n + 1) / 2;
-    for (int i = 0; i < n; i++) {
-        const SkillInfo *info = skills_get(i);
-        f->skills[i] = check(info->name, config_skill_enabled(info->id));
-        gtk_widget_set_tooltip_text(f->skills[i], info->example);
-        gtk_grid_attach(GTK_GRID(grid), f->skills[i], i / half, r + i % half, 1, 1);
-    }
-    r += half;
-    f->city = add_row(GTK_GRID(grid), r++, "Tu ciudad (para el clima)", gtk_entry_new());
-    gtk_entry_set_text(GTK_ENTRY(f->city), cfg.city);
-    gtk_entry_set_placeholder_text(GTK_ENTRY(f->city), "Chihuahua");
-    char *st = skills_text();
-    GtkWidget *mine = gtk_label_new(st);
-    free(st);
-    gtk_label_set_line_wrap(GTK_LABEL(mine), TRUE);
-    gtk_label_set_xalign(GTK_LABEL(mine), 0);
-    gtk_label_set_max_width_chars(GTK_LABEL(mine), 60);
-    gtk_grid_attach(GTK_GRID(grid), mine, 0, r++, 2, 1);
-    GtkWidget *bbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    GtkWidget *open = gtk_button_new_with_label("Abrir carpeta de skills");
-    GtkWidget *add = gtk_button_new_with_label("Nueva skill");
-    g_signal_connect(open, "clicked", G_CALLBACK(on_open_skills), mine);
-    g_signal_connect(add, "clicked", G_CALLBACK(on_new_skill), mine);
-    gtk_box_pack_start(GTK_BOX(bbox), open, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(bbox), add, FALSE, FALSE, 0);
-    gtk_grid_attach(GTK_GRID(grid), bbox, 0, r++, 2, 1);
-    SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
-    config_free(&cfg);
-    g_signal_connect(d, "response", G_CALLBACK(on_settings_response), f);
-    gtk_widget_show_all(d);
-}
-
-/* ------------------------------------------------------------ Tus PCs --- */
-
-typedef struct {
-    GtkWidget *dialog, *status, *list, *result, *buttons;
-    int kind; /* 0 detectar, 1 revisar, 2 firewall */
-    char *text;
-} MeshJob;
-
-static void mesh_fill(MeshJob *j)
-{
-    char *ip = mesh_listening_ip();
-    char *s = ip ? str_printf("✓ Esta PC recibe órdenes de tus otras PCs (en %s).", ip)
-                 : xstrdup("Esta PC todavía no recibe órdenes: se activa sola cuando Tailscale se conecta.");
-    gtk_label_set_text(GTK_LABEL(j->status), s);
-    free(s);
-    free(ip);
-    MeshDevice *d;
-    int n = mesh_devices(&d);
-    StrBuf sb;
-    sb_init(&sb);
-    for (int i = 0; i < n; i++) sb_appendf(&sb, "%s• %s (%s)", i ? "\n" : "", d[i].name, d[i].host);
-    if (!n) sb_append(&sb, "Todavía no tienes PCs registradas: dale a «Detectar mis PCs».");
-    gtk_label_set_text(GTK_LABEL(j->list), sb.data);
-    sb_free(&sb);
-    mesh_devices_free(d, n);
-}
-
-static void mesh_work(GTask *t, gpointer src, gpointer data, GCancellable *c)
-{
-    MeshJob *j = data;
-    if (j->kind == 1) {
-        j->text = mesh_diagnose();
-    } else if (j->kind == 2) {
-        j->text = xstrdup(mesh_allow_firewall() ? "Listo: la malla puede recibir órdenes de tu red de Tailscale."
-                                                : "No pude cambiar el firewall (¿cancelaste la contraseña?).");
-    } else {
-        MeshDevice *list;
-        char *why = NULL;
-        int n = tailscale_windows_peers(&list, &why);
-        StrBuf sb;
-        sb_init(&sb);
-        for (int i = 0; i < n; i++)
-            sb_appendf(&sb, "%s %s (%s)\n", mesh_device_set(list[i].name, list[i].host) ? "Registré" : "No pude registrar",
-                       list[i].name, list[i].host);
-        if (!n) sb_append(&sb, why ? why : "No encontré otras PCs en tu red de Tailscale.");
-        j->text = sb_steal(&sb);
-        free(why);
-        mesh_devices_free(list, n);
-    }
-    g_task_return_boolean(t, TRUE);
-}
-
-static void mesh_done(GObject *src, GAsyncResult *res, gpointer data)
-{
-    MeshJob *j = data;
-    gtk_label_set_text(GTK_LABEL(j->result), j->text ? j->text : "");
-    gtk_widget_set_sensitive(j->buttons, TRUE);
-    free(j->text);
-    j->text = NULL;
-    mesh_fill(j);
-}
-
-static void mesh_run(GtkButton *b, gpointer data)
-{
-    MeshJob *j = data;
-    j->kind = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(b), "kind"));
-    gtk_widget_set_sensitive(j->buttons, FALSE);
-    gtk_label_set_text(GTK_LABEL(j->result), j->kind == 1 ? "Revisando (tarda unos segundos)…" : "Un momento…");
-    GTask *t = g_task_new(NULL, NULL, mesh_done, j);
-    g_task_set_task_data(t, j, NULL);
-    g_task_run_in_thread(t, mesh_work);
-    g_object_unref(t);
-}
-
-static void on_mesh_response(GtkDialog *d, int response, gpointer data)
-{
-    MeshJob *j = data;
-    /* Si algo sigue corriendo, mesh_done todavía lo va a usar: se queda. */
-    if (!gtk_widget_get_sensitive(j->buttons)) return;
-    gtk_widget_destroy(GTK_WIDGET(d));
-    free(j);
-}
-
-static GtkWidget *mesh_button(GtkWidget *box, const char *label, int kind, MeshJob *j)
-{
-    GtkWidget *b = gtk_button_new_with_label(label);
-    g_object_set_data(G_OBJECT(b), "kind", GINT_TO_POINTER(kind));
-    g_signal_connect(b, "clicked", G_CALLBACK(mesh_run), j);
-    gtk_box_pack_start(GTK_BOX(box), b, TRUE, TRUE, 0);
-    return b;
-}
-
-static void mesh_open(void)
-{
-    MeshJob *j = xcalloc(1, sizeof *j);
-    j->dialog = gtk_dialog_new_with_buttons("Tus PCs", GTK_WINDOW(U.win), GTK_DIALOG_DESTROY_WITH_PARENT, "Cerrar",
-                                            GTK_RESPONSE_CLOSE, NULL);
-    gtk_window_set_default_size(GTK_WINDOW(j->dialog), 560, 420);
-    GtkWidget *box = gtk_dialog_get_content_area(GTK_DIALOG(j->dialog));
-    gtk_container_set_border_width(GTK_CONTAINER(box), 18);
-    gtk_box_set_spacing(GTK_BOX(box), 12);
-    GtkWidget *intro = gtk_label_new("Con Tailscale (gratis) le hablas a Sokari en una PC y lo hace en otra: «en la "
-                                     "laptop abre Spotify».");
-    gtk_label_set_line_wrap(GTK_LABEL(intro), TRUE);
-    gtk_label_set_xalign(GTK_LABEL(intro), 0);
-    j->status = gtk_label_new("");
-    j->list = gtk_label_new("");
-    j->result = gtk_label_new("");
-    GtkWidget *labels[] = {intro, j->status, j->list};
-    for (int i = 0; i < 3; i++) {
-        gtk_label_set_line_wrap(GTK_LABEL(labels[i]), TRUE);
-        gtk_label_set_xalign(GTK_LABEL(labels[i]), 0);
-        gtk_box_pack_start(GTK_BOX(box), labels[i], FALSE, FALSE, 0);
-    }
-    j->buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    mesh_button(j->buttons, "Detectar mis PCs", 0, j);
-    mesh_button(j->buttons, "Revisar la malla", 1, j);
-    mesh_button(j->buttons, "Permitir en el firewall", 2, j);
-    gtk_box_pack_start(GTK_BOX(box), j->buttons, FALSE, FALSE, 0);
-    gtk_label_set_selectable(GTK_LABEL(j->result), TRUE);
-    gtk_label_set_line_wrap(GTK_LABEL(j->result), TRUE);
-    gtk_label_set_xalign(GTK_LABEL(j->result), 0);
-    gtk_label_set_yalign(GTK_LABEL(j->result), 0);
-    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_container_add(GTK_CONTAINER(scroll), j->result);
-    gtk_box_pack_start(GTK_BOX(box), scroll, TRUE, TRUE, 0);
-    mesh_fill(j);
-    g_signal_connect(j->dialog, "response", G_CALLBACK(on_mesh_response), j);
-    gtk_widget_show_all(j->dialog);
+    settings_linux_open(GTK_WINDOW(U.win), first_run, SET_ACCOUNT);
 }
 
 /* ------------------------------------------------------------- acciones --- */
@@ -771,7 +397,7 @@ static void act_settings(GSimpleAction *a, GVariant *p, gpointer u)
 static void act_mesh(GSimpleAction *a, GVariant *p, gpointer u)
 {
     show_window();
-    mesh_open();
+    settings_linux_open(GTK_WINDOW(U.win), false, SET_DEVICES);
 }
 
 static void act_quit(GSimpleAction *a, GVariant *p, gpointer u)

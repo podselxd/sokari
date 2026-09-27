@@ -288,6 +288,23 @@ static void test_orden(void)
     char *k = config_provider_key("nvidia");
     check(k && *k == 0, "sin key de NVIDIA: vacía");
     free(k);
+
+    /* Lo que escribes en «Orden» (Configuración de Windows y de Linux). */
+    struct {
+        const char *typed, *want, *what;
+    } cases[] = {
+        {"NVIDIA, groq; glm", "nvidia,groq,glm", "«NVIDIA, groq; glm»: minúsculas, comas y sin espacios"},
+        {"groq,groq,nvidia", "groq,nvidia", "repetidas: una sola vez"},
+        {"groq, chatgpt, glm", "groq,glm", "una que no conoce se quita"},
+        {"", DEFAULT_AI_ORDER, "vacío: el orden de fábrica"},
+        {"chatgpt", DEFAULT_AI_ORDER, "nada conocido: el orden de fábrica"},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        char *got = config_clean_ai_order(cases[i].typed);
+        check(!strcmp(got, cases[i].want), cases[i].what);
+        if (strcmp(got, cases[i].want)) printf("      dio: %s\n", got);
+        free(got);
+    }
 }
 
 int wmain(void)

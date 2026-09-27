@@ -1082,3 +1082,27 @@ char *tool_gestionar_dispositivo(const cJSON *a)
     free(n);
     return r;
 }
+
+char *mesh_detect_devices(void)
+{
+    MeshDevice *peers, *known;
+    char *why = NULL;
+    int np = tailscale_windows_peers(&peers, &why), nk = mesh_devices(&known);
+    StrBuf added;
+    sb_init(&added);
+    for (int i = 0; i < np; i++) {
+        bool have = false;
+        for (int k = 0; k < nk && !have; k++)
+            have = !strcmp(known[k].host, peers[i].host) || !strcmp(known[k].name, peers[i].name);
+        if (!have && mesh_device_set(peers[i].name, peers[i].host))
+            sb_appendf(&added, "%s%s", added.len ? ", " : "", peers[i].name);
+    }
+    char *msg = np == 0 ? str_printf("No encontré otras PCs con Windows. %s", why ? why : "")
+                : added.len ? str_printf("Agregué: %s. Dale a Probar para ver si contesta.", added.data)
+                            : str_printf("Ya tenías registradas tus PCs de Tailscale (%d).", np);
+    free(why);
+    sb_free(&added);
+    mesh_devices_free(peers, np);
+    mesh_devices_free(known, nk);
+    return msg;
+}

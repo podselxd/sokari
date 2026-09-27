@@ -109,6 +109,9 @@ void config_set_display_mode(int mode);
 void config_set_output(const char *name);
 
 const char *display_mode_key(int mode);
+/* El orden de las IA como lo escribiste ("NVIDIA, groq; glm"): solo las que
+   conoce, sin repetir, en minúsculas; vacío o nada conocido es el de fábrica (heap). */
+char *config_clean_ai_order(const char *text);
 /* "materializar", "deslizar", "zoom" o "ninguna"; lo que no entiende es 0 (materializarse). */
 const char *appear_anim_key(int anim);
 int appear_anim_from_key(const char *key);

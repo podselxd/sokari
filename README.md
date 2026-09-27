@@ -29,6 +29,8 @@ Ubuntu 24.04 o más nuevo, o Fedora 44, con GNOME. **Es beta:** está probado en
 3. Cierra sesión y vuelve a entrar **una vez**. Así GNOME carga la extensión de Sokari, la que le deja ver tus ventanas y oprimir teclas. `sokari --revisar-gnome` te dice si ya funciona.
 4. Abre **Sokari** desde tus apps. La primera vez te pide tu API key de Groq, igual que en Windows.
 
+Su **Configuración** tiene las mismas secciones que la de Windows: Cuenta, Pantalla, Voz y audio, General, Skills, Tus PCs e IA de respaldo. Todavía faltan en Linux los modos de pantalla (pantalla completa, esfera flotante…), «Aparecer solo cuando le hablas» y la ventana de Inicio; **Detectar mis PCs** solo encuentra PCs con Windows (las de Linux se registran diciéndole «registra mi laptop en 100.x.y.z»).
+
 No se actualiza solo, porque instalar pide tu contraseña: te avisa cuando sale una versión nueva, y en su menú **Buscar actualización** (o `sokari --actualizar`) la baja, comprueba su huella SHA-256 y la instala. Para quitarlo: `sudo apt remove sokari` o `sudo dnf remove sokari` (tu configuración y tu memoria se quedan en `~/.config/sokari` y `~/.local/share/sokari`).
 
 ## Uso

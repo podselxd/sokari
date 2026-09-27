@@ -982,30 +982,6 @@ static void load_values(void)
 
 /* "NVIDIA, groq" -> "nvidia,groq"; lo que no sea un proveedor conocido se
    quita, y si no queda nada, el de fábrica. Toma t (heap). */
-static char *clean_ai_order(char *t)
-{
-    static const char *const KNOWN[] = {"groq", "nvidia", "deepseek", "openrouter", "glm"};
-    StrBuf sb;
-    sb_init(&sb);
-    char *low = str_lower(t), *ctx = NULL;
-    free(t);
-    for (char *tok = strtok_s(low, ", ;", &ctx); tok; tok = strtok_s(NULL, ", ;", &ctx)) {
-        for (size_t i = 0; i < sizeof KNOWN / sizeof *KNOWN; i++) {
-            char pat[24];
-            snprintf(pat, sizeof pat, ",%s,", KNOWN[i]);
-            char *have = str_printf(",%s,", sb.data ? sb.data : "");
-            if (!strcmp(tok, KNOWN[i]) && !strstr(have, pat)) sb_appendf(&sb, "%s%s", sb.len ? "," : "", KNOWN[i]);
-            free(have);
-        }
-    }
-    free(low);
-    if (!sb.len) {
-        sb_free(&sb);
-        return xstrdup(DEFAULT_AI_ORDER);
-    }
-    return sb.data;
-}
-
 static void save(void)
 {
     char *api = edit_text(F_API);
@@ -1053,7 +1029,9 @@ static void save(void)
         *backup[k] = edit_text(F_NVIDIA + k);
     }
     free(c.ai_order);
-    c.ai_order = clean_ai_order(edit_text(F_AI_ORDER));
+    char *order = edit_text(F_AI_ORDER);
+    c.ai_order = config_clean_ai_order(order);
+    free(order);
     free(c.city);
     c.city = edit_text(F_CITY);
     StrBuf off;
@@ -1132,30 +1110,12 @@ typedef struct {
     wchar_t *result;
 } AsyncJob;
 
-/* Busca tus otras PCs con Windows en Tailscale y registra las que falten. */
+/* Busca tus otras PCs en Tailscale y registra las que falten. */
 static wchar_t *detect_devices(void)
 {
-    MeshDevice *peers, *known;
-    char *why = NULL;
-    int np = tailscale_windows_peers(&peers, &why), nk = mesh_devices(&known);
-    StrBuf added;
-    sb_init(&added);
-    for (int i = 0; i < np; i++) {
-        bool have = false;
-        for (int k = 0; k < nk && !have; k++)
-            have = !strcmp(known[k].host, peers[i].host) || !strcmp(known[k].name, peers[i].name);
-        if (!have && mesh_device_set(peers[i].name, peers[i].host))
-            sb_appendf(&added, "%s%s", added.len ? ", " : "", peers[i].name);
-    }
-    char *msg = np == 0 ? str_printf("No encontré otras PCs con Windows. %s", why ? why : "")
-                : added.len ? str_printf("Agregué: %s. Dale a Probar para ver si contesta.", added.data)
-                            : str_printf("Ya tenías registradas tus PCs de Tailscale (%d).", np);
+    char *msg = mesh_detect_devices();
     wchar_t *w = utf8_to_wide(msg);
     free(msg);
-    free(why);
-    sb_free(&added);
-    mesh_devices_free(peers, np);
-    mesh_devices_free(known, nk);
     return w;
 }
 
