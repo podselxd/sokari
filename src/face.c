@@ -435,7 +435,6 @@ void face_step(Face *f, double dt, const FaceInput *in, SphereFace *out)
 
     /* El gesto de ahora (y el anterior, que se apaga), con su envolvente. */
     GOut ge, gl;
-    float follow = 1;
     GOut sum;
     memset(&sum, 0, sizeof sum);
     sum.eye_k = sum.glow = 1;
@@ -456,9 +455,7 @@ void face_step(Face *f, double dt, const FaceInput *in, SphereFace *out)
         for (int e = 0; e < 2; e++) sum.blink[e] = fmaxf(sum.blink[e], ge.blink[e] * env);
         lag_fx += gl.fx * k * gl.follow;
         lag_fy += gl.fy * k * gl.follow;
-        if (i == 0) follow = ge.follow;
     }
-    (void)follow;
 
     /* Parpadea sola, a veces dos veces seguidas. */
     if (f->t >= f->next_blink) {
