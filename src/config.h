@@ -35,7 +35,8 @@ typedef struct {
     int resolution; /* 0 = automática, si no el alto en píxeles (720, 1080, 1440, 2160) */
     int volume;     /* 0-100, volumen de la voz de Sokari (no el del sistema) */
     int wake_sensitivity; /* 0-100 */
-    int sphere_style;     /* 0 = halo de puntos, 1 = líneas */
+    int sphere_style;     /* 0 = halo de puntos, 1 = líneas (beta) */
+    int appear_anim;      /* al aparecer y desaparecer (SphereAnim): 0 materializarse, 1 deslizarse, 2 zoom, 3 nada */
     int end_silence;      /* cuánto esperar callado para terminar tu orden: 0 corta, 1 normal, 2 larga */
     int orb_x, orb_y;     /* posición de la ventana flotante; -1 = centrada */
     int win_x, win_y, win_w, win_h; /* modo Ventana; win_w <= 0 = tamaño y lugar por defecto */
@@ -108,5 +109,8 @@ void config_set_display_mode(int mode);
 void config_set_output(const char *name);
 
 const char *display_mode_key(int mode);
+/* "materializar", "deslizar", "zoom" o "ninguna"; lo que no entiende es 0 (materializarse). */
+const char *appear_anim_key(int anim);
+int appear_anim_from_key(const char *key);
 
 #endif

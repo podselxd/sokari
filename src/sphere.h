@@ -46,4 +46,51 @@ void sphere_render(SphereRenderer *r, double t, double angle, double voice_t, co
 
 void sphere_lerp(SphereParams *out, const SphereParams *a, const SphereParams *b, float f);
 
+/* Cómo entra y sale de la pantalla (Configuración → Pantalla). */
+typedef enum {
+    SPHERE_ANIM_MATERIALIZE = 0, /* llega de afuera en pedazos y se junta; al irse se dispersa */
+    SPHERE_ANIM_SLIDE = 1,       /* sube desde abajo de la pantalla; al irse baja (ver sphere_slide_offset) */
+    SPHERE_ANIM_ZOOM = 2,        /* crece desde un punto; al irse se encoge */
+    SPHERE_ANIM_NONE = 3,        /* aparece y desaparece de golpe */
+    SPHERE_ANIM_COUNT
+} SphereAnim;
+
+#define SPHERE_ENTER_SECONDS 1.0
+#define SPHERE_LEAVE_SECONDS 0.8
+
+/* Qué tanto está en pantalla para los cuadros que siguen: 0 no se dibuja
+   nada, 1 es la esfera de siempre (idéntica, píxel por píxel). */
+void sphere_set_presence(SphereRenderer *r, SphereAnim anim, float presence);
+
+/* Deslizarse no se dibuja dentro del lienzo: la ventana (o el cuadro) se
+   mueve. Cuánto más abajo va, en fracciones del recorrido hasta quedar fuera
+   de la pantalla: 1 fuera, 0 en su lugar; un poco menos de 0 es el rebote. */
+float sphere_slide_offset(float presence);
+
+/* El reloj de la animación. La ventana se muestra antes de entrar y se
+   esconde cuando sphere_appear_step dice que ya se fue. */
+typedef struct {
+    float presence; /* 0 fuera, 1 en pantalla */
+    int dir;        /* +1 entrando, -1 saliendo, 0 quieta */
+    int then;       /* Probar: el paso que sigue (+1 o -1) */
+    double hold;    /* Probar: cuánto espera antes de ese paso */
+    SphereAnim anim;
+} SphereAppear;
+
+/* En pantalla y quieta. */
+void sphere_appear_init(SphereAppear *a);
+/* Entra desde donde va (si se estaba yendo, regresa sin brincos) o, con
+   from_zero, desde fuera. */
+void sphere_appear_enter(SphereAppear *a, SphereAnim anim, bool from_zero);
+/* Se va. true: no hay animación (Ninguna), escóndela ya. */
+bool sphere_appear_leave(SphereAppear *a, SphereAnim anim);
+/* El botón Probar. shown: sale, espera un momento y vuelve a entrar. Si no:
+   entra, se queda un segundo y se va. */
+void sphere_appear_test(SphereAppear *a, SphereAnim anim, bool shown);
+/* Avanza dt segundos. true una sola vez, cuando terminó de irse: ahí se
+   esconde la ventana. */
+bool sphere_appear_step(SphereAppear *a, double dt);
+/* Se está moviendo (o esperando en Probar): hay que seguir dibujando. */
+bool sphere_appear_moving(const SphereAppear *a);
+
 #endif

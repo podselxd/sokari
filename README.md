@@ -46,6 +46,7 @@ No se actualiza solo, porque instalar pide tu contraseña: te avisa cuando sale 
 - Para callarla mientras habla: di **"Hey Sokari"**, aprieta **Ctrl+Alt+J** o dale **un clic a la esfera**. Todo lo que dice se puede saltar, también las explicaciones largas. Si le das clic mientras piensa, no dice la respuesta (lo que ya hizo no se deshace). Con ella quieta, un clic no hace nada, y si arrastras la esfera flotante, no cuenta como clic. Otros ruidos no la interrumpen.
 - Para cerrar la conversación dile "adiós", "ya vete" o "eso es todo". También termina cuando Sokari se despide o si dejas de hablarle. Si configuraste una palabra de apagado y la dices, Sokari se cierra al instante.
 - Con **Aparecer solo cuando le hablas** (Configuración → Pantalla, prendida de fábrica), la esfera aparece en tu modo de pantalla al hablarle y se esconde al terminar. Al abrir Sokari se ve y se queda hasta tu primera conversación.
+- **Al aparecer y desaparecer** (Configuración → Pantalla), la esfera se anima: **Materializarse** (de fábrica: llega en pedazos y se junta; al irse se dispersa), **Deslizarse** (sube desde abajo de la pantalla y baja al irse), **Zoom** (crece desde un punto y se encoge) o **Ninguna**. Entra en 1 segundo y sale en 0.8. **Probar** te la muestra sin guardar. En Minimizado no hay animación; en Linux se anima al abrir y al cerrar la ventana.
 
 Menú del ícono de la bandeja (clic derecho): **Hablar con Sokari**, **Ocultar/Mostrar la esfera**, **Modo de pantalla**, **Silenciar micrófono**, **Acceso completo (menos borrar)**, **Ventana de inicio…**, **⚙ Configuración…**, **Abrir carpeta de Sokari** y **Salir**.
 
@@ -65,7 +66,7 @@ Sale al abrir `Sokari.exe` a mano, o desde **Ventana de inicio…** en la bandej
 |---|---|
 | Inicio | Iniciar, modo de pantalla, salida de audio y botones rápidos (ver arriba) |
 | Cuenta | API key de Groq, tu nombre, contraseña de tu perfil y palabra de apagado |
-| Pantalla | Modo de pantalla, resolución de la esfera, estilo (halo de puntos o líneas), subtítulos y "Aparecer solo cuando le hablas" |
+| Pantalla | Modo de pantalla, resolución de la esfera, estilo (halo de puntos o líneas, en beta), cómo aparece y desaparece (con Probar), subtítulos y "Aparecer solo cuando le hablas" |
 | Voz y audio | Volumen, voz de Windows (Raúl de México por defecto, con botón **Probar**), micrófono, salida de audio, sensibilidad de "Hey Sokari", cuánto espera cuando te callas y bajar el volumen de la PC mientras te escucha |
 | General | Iniciar con Windows, sonido de activación, Obsidian y **Acceso completo (menos borrar)** |
 | IA de respaldo | Keys opcionales de NVIDIA, DeepSeek, OpenRouter y GLM (con **Sacar key**) y en qué orden se usan cuando Groq se queda sin cupo |

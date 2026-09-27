@@ -29,6 +29,10 @@
 /* "Aparecer solo cuando le hablas": al terminar de hablar, la esfera espera
    un momento (que se vea que terminó) y se esconde. */
 #define WM_APP_AUTOHIDE (WM_APP + 9)
+/* El hilo de dibujo terminó de sacar la esfera: ya se puede esconder la ventana. */
+#define WM_APP_LEFT (WM_APP + 10)
+/* El botón Probar de la animación (wParam: cuál). */
+#define WM_APP_ANIMTEST (WM_APP + 11)
 #define TIMER_AUTOHIDE 1
 #define AUTOHIDE_MS 1500
 #define SUBTITLE_SECONDS 8.0
@@ -41,9 +45,16 @@ static struct {
     UINT taskbar_created;
 
     int mode, style, res;
+    int anim; /* cómo entra y sale (SphereAnim) */
     bool subtitles;
     volatile LONG visible;
     volatile LONG yielded;
+    /* Se está yendo (o la muestra Probar): la ventana sigue en pantalla hasta
+       que el hilo de dibujo avisa que terminó (WM_APP_LEFT). */
+    volatile LONG leaving;
+    /* Lo último que se le pidió al hilo de dibujo: (número << 5) | (animación << 3) | pedido. */
+    volatile LONG anim_req;
+    LONG anim_seq, leave_seq;
     RECT mon; /* monitor; en los modos con ventana, el rectángulo de la ventana */
     /* Esfera flotante: orb_base es el cuadro de la esfera; la ventana (orb_size)
        le suma orb_pad transparente de cada lado para que las ondas de las líneas
@@ -188,6 +199,7 @@ static void load_display_config(void)
     AppConfig c = config_snapshot();
     U.mode = c.display_mode;
     U.style = c.sphere_style;
+    U.anim = c.appear_anim;
     U.res = c.resolution;
     U.subtitles = c.subtitles;
     primary_monitor(&U.mon);
@@ -230,6 +242,47 @@ static int quiet_show_cmd(void)
     return U.mode == DISPLAY_MINIMIZED ? SW_SHOWMINNOACTIVE : SW_SHOWNOACTIVATE;
 }
 
+/* Lo que se le pide al hilo de dibujo para entrar y salir. */
+enum { AREQ_ENTER = 1, AREQ_ENTER_ZERO, AREQ_LEAVE, AREQ_TEST_SHOWN, AREQ_TEST_HIDDEN, AREQ_RESET };
+
+static SphereAnim hud_anim(void)
+{
+    /* Minimizado vive en la barra de tareas: aparece y se va de golpe. */
+    return U.mode == DISPLAY_MINIMIZED ? SPHERE_ANIM_NONE : (SphereAnim)U.anim;
+}
+
+static LONG anim_request(int req, SphereAnim anim)
+{
+    LONG seq = ++U.anim_seq & 0x3ffffff;
+    InterlockedExchange(&U.anim_req, (seq << 5) | ((LONG)anim << 3) | req);
+    SetEvent(U.wake);
+    return seq;
+}
+
+/* La esfera entra: si se estaba yendo, regresa desde donde iba; si estaba
+   oculta, desde fuera. Se llama antes de mostrar la ventana. */
+static void begin_enter(void)
+{
+    SphereAnim an = hud_anim();
+    bool was_leaving = InterlockedExchange(&U.leaving, 0) != 0;
+    if (an == SPHERE_ANIM_NONE) anim_request(AREQ_RESET, an);
+    else if (was_leaving) anim_request(AREQ_ENTER, an);
+    else if (U.hud && !IsWindowVisible(U.hud)) anim_request(AREQ_ENTER_ZERO, an);
+}
+
+/* La esfera se va con su animación y la ventana se esconde al terminar
+   (WM_APP_LEFT). Sin animación, o si no se ve, se esconde ya. */
+static void begin_leave(void)
+{
+    if (U.hud && IsWindowVisible(U.hud) && !IsIconic(U.hud) && hud_anim() != SPHERE_ANIM_NONE) {
+        InterlockedExchange(&U.leaving, 1);
+        U.leave_seq = anim_request(AREQ_LEAVE, hud_anim());
+    } else {
+        InterlockedExchange(&U.leaving, 0);
+        if (U.hud) ShowWindow(U.hud, SW_HIDE);
+    }
+}
+
 static void create_hud(void)
 {
     bool win = windowed(U.mode);
@@ -241,7 +294,10 @@ static void create_hud(void)
                             U.mon.right - U.mon.left, U.mon.bottom - U.mon.top, NULL, NULL, U.inst, NULL);
     BOOL dark = TRUE;
     DwmSetWindowAttribute(U.hud, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof dark);
-    if (InterlockedCompareExchange(&U.visible, 1, 1)) ShowWindow(U.hud, quiet_show_cmd());
+    if (InterlockedCompareExchange(&U.visible, 1, 1)) {
+        begin_enter();
+        ShowWindow(U.hud, quiet_show_cmd());
+    }
 }
 
 static void rebuild_hud(void)
@@ -249,6 +305,7 @@ static void rebuild_hud(void)
     AcquireSRWLockExclusive(&U.hud_lock);
     if (U.hud) DestroyWindow(U.hud);
     U.hud = NULL;
+    InterlockedExchange(&U.leaving, 0);
     load_display_config();
     create_hud();
     InterlockedExchange(&U.reconfig, 1);
@@ -268,12 +325,15 @@ static void show_hud(bool show, HudShow how)
     if (U.hud) {
         bool front = how == HUD_SHOW_FRONT || (how == HUD_SHOW_STARTED && U.mode == DISPLAY_WINDOWED);
         if (!show) {
-            ShowWindow(U.hud, SW_HIDE);
-        } else if (windowed(U.mode) && front) {
-            ShowWindow(U.hud, IsIconic(U.hud) ? SW_RESTORE : SW_SHOW);
-            SetForegroundWindow(U.hud);
-        } else if (!windowed(U.mode) || !IsWindowVisible(U.hud)) {
-            ShowWindow(U.hud, quiet_show_cmd());
+            begin_leave();
+        } else {
+            begin_enter();
+            if (windowed(U.mode) && front) {
+                ShowWindow(U.hud, IsIconic(U.hud) ? SW_RESTORE : SW_SHOW);
+                SetForegroundWindow(U.hud);
+            } else if (!windowed(U.mode) || !IsWindowVisible(U.hud)) {
+                ShowWindow(U.hud, quiet_show_cmd());
+            }
         }
     }
     SetEvent(U.wake);
@@ -299,6 +359,11 @@ static void toggle_hud(void)
 void ui_show_hud(HudShow how)
 {
     if (U.msg) PostMessageW(U.msg, WM_APP_SHOWHUD, (WPARAM)how, 0);
+}
+
+bool ui_preview_appear(int anim)
+{
+    return U.msg && U.hud && U.mode != DISPLAY_MINIMIZED && PostMessageW(U.msg, WM_APP_ANIMTEST, (WPARAM)anim, 0);
 }
 
 void ui_set_display_mode(int mode)
@@ -625,13 +690,35 @@ static DWORD WINAPI render_main(LPVOID arg)
     last = start;
     InterlockedExchange(&U.reconfig, 1);
     int frame = 0;
+    /* Entrar y salir de la pantalla. Deslizarse mueve la esfera: la flotante
+       mueve su ventana desde home; en las demás baja dentro del cuadro. */
+    SphereAppear ap;
+    sphere_appear_init(&ap);
+    LONG ap_seq = 0;
+    bool slid = false, back_moved = false;
+    POINT home = {0, 0};
+    int home_bottom = 0;
 
     while (InterlockedCompareExchange(&U.running, 1, 1)) {
+        LONG rq = InterlockedExchange(&U.anim_req, 0);
+        if (rq) {
+            SphereAnim an = (SphereAnim)((rq >> 3) & 3);
+            ap_seq = rq >> 5;
+            switch (rq & 7) {
+            case AREQ_ENTER: sphere_appear_enter(&ap, an, false); break;
+            case AREQ_ENTER_ZERO: sphere_appear_enter(&ap, an, true); break;
+            case AREQ_LEAVE: sphere_appear_leave(&ap, an); break;
+            case AREQ_TEST_SHOWN: sphere_appear_test(&ap, an, true); break;
+            case AREQ_TEST_HIDDEN: sphere_appear_test(&ap, an, false); break;
+            default: sphere_appear_init(&ap); break;
+            }
+        }
         AcquireSRWLockShared(&U.hud_lock);
         HWND hud = U.hud;
-        /* Oculta, apartada o minimizada: no se dibuja nada. */
-        if (!InterlockedCompareExchange(&U.visible, 1, 1) || InterlockedCompareExchange(&U.yielded, 1, 1) ||
-            (hud && windowed(U.mode) && IsIconic(hud))) {
+        /* Oculta, apartada o minimizada: no se dibuja nada (salvo mientras se va). */
+        bool leaving = InterlockedCompareExchange(&U.leaving, 1, 1) != 0;
+        bool shown = InterlockedCompareExchange(&U.visible, 1, 1) && !InterlockedCompareExchange(&U.yielded, 1, 1);
+        if ((!shown && !leaving) || (hud && windowed(U.mode) && IsIconic(hud))) {
             ReleaseSRWLockShared(&U.hud_lock);
             WaitForSingleObject(U.wake, 300);
             QueryPerformanceCounter(&last);
@@ -662,6 +749,7 @@ static DWORD WINAPI render_main(LPVOID arg)
                 canvas = sphere_size(sr);
                 surface_alloc(&sphere, canvas, canvas);
                 sphere_base = base;
+                slid = back_moved = false;
             }
             if (U.mode == DISPLAY_WINDOWED_BORDERLESS) {
                 surface_free(&back);
@@ -700,14 +788,33 @@ static DWORD WINAPI render_main(LPVOID arg)
         angle += cur.rotation_speed * dt * (1.0 + voice * 0.8);
         voice_t += dt * (1.0 + 2.5 * voice);
 
+        bool gone = sphere_appear_step(&ap, dt);
+        bool slide = ap.anim == SPHERE_ANIM_SLIDE && ap.presence < 1.0f;
         bool orb = U.mode == DISPLAY_WINDOWED_BORDERLESS;
+        sphere_set_presence(sr, ap.anim, ap.presence);
         sphere_render(sr, t, angle, voice_t, &cur, voice, pulse, (SphereStyle)U.style, sphere.px, sphere.w, orb);
 
         if (hud && orb) {
             SIZE sz = {sphere.w, sphere.h};
-            POINT src = {0, 0};
+            POINT src = {0, 0}, pos = {0, 0}, *at = NULL;
             BLENDFUNCTION bf = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-            UpdateLayeredWindow(hud, NULL, NULL, &sz, sphere.dc, &src, 0, &bf, ULW_ALPHA);
+            if (slide || slid) {
+                /* La ventana baja hasta salir por abajo de su monitor; al
+                   terminar de entrar vuelve exacto a donde la dejaste. */
+                if (!slid) {
+                    RECT wr;
+                    GetWindowRect(hud, &wr);
+                    home = (POINT){wr.left, wr.top};
+                    MONITORINFO mi = {sizeof mi};
+                    GetMonitorInfoW(MonitorFromPoint(home, MONITOR_DEFAULTTONEAREST), &mi);
+                    home_bottom = mi.rcMonitor.bottom;
+                }
+                float off = slide ? sphere_slide_offset(ap.presence) : 0.0f;
+                pos = (POINT){home.x, home.y + (int)lroundf(off * (float)(home_bottom - home.y))};
+                at = &pos;
+                slid = slide;
+            }
+            UpdateLayeredWindow(hud, NULL, at, &sz, sphere.dc, &src, 0, &bf, ULW_ALPHA);
         } else if (hud && back.dc) {
             int W = back.w, H = back.h;
             int band = (int)(H * 0.68);
@@ -717,7 +824,12 @@ static DWORD WINAPI render_main(LPVOID arg)
                grande en la misma proporción: la esfera queda del tamaño de
                siempre y sus ondas pueden llegar al borde de la pantalla. */
             int dst = sphere_base > 0 ? MulDiv(side, sphere.w, sphere_base) : side;
-            int x0 = (W - dst) / 2, y0 = (H - dst) / 2;
+            /* Deslizarse: sube desde abajo del borde de la pantalla. Lo que
+               deja atrás se borra. */
+            int off = slide ? (int)lroundf(sphere_slide_offset(ap.presence) * (float)(H + dst) * 0.5f) : 0;
+            if (off || back_moved) memset(back.px, 0, sizeof(uint32_t) * (size_t)W * H);
+            back_moved = off != 0;
+            int x0 = (W - dst) / 2, y0 = (H - dst) / 2 + off;
             if (sphere.w == dst) {
                 BitBlt(back.dc, x0, y0, dst, dst, sphere.dc, 0, 0, SRCCOPY);
             } else {
@@ -733,11 +845,13 @@ static DWORD WINAPI render_main(LPVOID arg)
             }
         }
         ReleaseSRWLockShared(&U.hud_lock);
+        if (gone) PostMessageW(U.msg, WM_APP_LEFT, (WPARAM)ap_seq, 0);
 
         /* Sincronizado con el monitor; en reposo a la mitad de cuadros (el
-           movimiento es lento, no se nota, y ahorra batería). */
+           movimiento es lento, no se nota, y ahorra batería), salvo al entrar
+           o salir. */
         DwmFlush();
-        if (st == JV_IDLE && (++frame & 1)) DwmFlush();
+        if (st == JV_IDLE && !sphere_appear_moving(&ap) && (++frame & 1)) DwmFlush();
     }
     sphere_destroy(sr);
     surface_free(&sphere);
@@ -833,7 +947,7 @@ static LRESULT CALLBACK msg_proc(HWND h, UINT m, WPARAM w, LPARAM l)
     case WM_APP_YIELD:
         if (U.mode == DISPLAY_FULLSCREEN && InterlockedCompareExchange(&U.visible, 1, 1) && U.hud) {
             InterlockedExchange(&U.yielded, 1);
-            ShowWindow(U.hud, SW_HIDE);
+            begin_leave();
         } else if (windowed(U.mode) && U.hud && IsWindowVisible(U.hud)) {
             /* Si tenía el foco se lo pasa a tu ventana; y si estaba encima de
                ella (por ejemplo en F11), se pone detrás para que veas lo que
@@ -853,7 +967,10 @@ static LRESULT CALLBACK msg_proc(HWND h, UINT m, WPARAM w, LPARAM l)
                 show_hud(true, HUD_SHOW_QUIET);
         } else if (w == 2) {
             bool vis = InterlockedCompareExchange(&U.visible, 1, 1);
-            if (InterlockedExchange(&U.yielded, 0) && U.hud && vis) ShowWindow(U.hud, SW_SHOWNOACTIVATE);
+            if (InterlockedExchange(&U.yielded, 0) && U.hud && vis) {
+                begin_enter();
+                ShowWindow(U.hud, SW_SHOWNOACTIVATE);
+            }
             bool raise = U.mode == DISPLAY_FULLSCREEN_BORDERLESS || (U.mode == DISPLAY_WINDOWED && !IsIconic(U.hud));
             if (U.hud && vis && raise)
                 SetWindowPos(U.hud, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -873,6 +990,27 @@ static LRESULT CALLBACK msg_proc(HWND h, UINT m, WPARAM w, LPARAM l)
                 show_hud(false, HUD_SHOW_QUIET);
         }
         return 0;
+    case WM_APP_LEFT:
+        /* Ya terminó de irse: ahora sí se esconde, si nadie la volvió a
+           llamar mientras se iba. */
+        if ((LONG)w == U.leave_seq && InterlockedCompareExchange(&U.leaving, 0, 1) == 1 && U.hud)
+            ShowWindow(U.hud, SW_HIDE);
+        return 0;
+    case WM_APP_ANIMTEST: {
+        /* Probar (Configuración): con la animación elegida, aunque no esté
+           guardada todavía. En pantalla: sale y vuelve. Oculta: se asoma y
+           se va. */
+        SphereAnim an = (SphereAnim)w;
+        if (!U.hud || U.mode == DISPLAY_MINIMIZED || an >= SPHERE_ANIM_NONE || IsIconic(U.hud)) return 0;
+        if (IsWindowVisible(U.hud) && !InterlockedCompareExchange(&U.leaving, 1, 1)) {
+            anim_request(AREQ_TEST_SHOWN, an);
+        } else {
+            InterlockedExchange(&U.leaving, 1);
+            U.leave_seq = anim_request(AREQ_TEST_HIDDEN, an);
+            if (!IsWindowVisible(U.hud)) ShowWindow(U.hud, quiet_show_cmd());
+        }
+        return 0;
+    }
     case WM_APP_SETTINGS:
         settings_open(U.inst, false, U.on_saved);
         return 0;
@@ -885,6 +1023,7 @@ static LRESULT CALLBACK msg_proc(HWND h, UINT m, WPARAM w, LPARAM l)
     case WM_APP_QUIT:
         tray_set_tooltip(L"Sokari — cerrando…");
         InterlockedExchange(&U.visible, 0);
+        InterlockedExchange(&U.leaving, 0);
         if (U.hud) ShowWindow(U.hud, SW_HIDE);
         voice_stop();
         DestroyWindow(h);

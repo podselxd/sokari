@@ -31,7 +31,7 @@ HEY_SOKARI := $(wildcard res/hey_sokari.jww)
 RES_FILES := res/tools.json res/system_prompt.txt res/wakeword.bin res/sokari.png $(HEY_SOKARI)
 
 # Las pruebas que ya corren en Linux (las demás llegan con cada parte).
-LINUX_TESTS := test_comandos test_skills test_confirmacion test_escucha test_malla test_resources test_respaldos test_teclado test_util test_voice test_wakeword test_groq
+LINUX_TESTS := test_aparecer test_comandos test_skills test_confirmacion test_escucha test_malla test_resources test_respaldos test_teclado test_util test_voice test_wakeword test_groq
 # Y las que son solo de Linux (tests/linux/).
 LINUX_ONLY_TESTS := $(patsubst tests/linux/%.c,%,$(wildcard tests/linux/*.c))
 TESTS := $(addprefix build-linux/tests/,$(LINUX_TESTS) $(LINUX_ONLY_TESTS))

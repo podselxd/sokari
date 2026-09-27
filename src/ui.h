@@ -43,6 +43,10 @@ void ui_config_changed(void);
 typedef enum { HUD_SHOW_QUIET = 0, HUD_SHOW_FRONT = 1, HUD_SHOW_STARTED = 3 } HudShow;
 void ui_show_hud(HudShow how);
 void ui_set_display_mode(int mode);
+/* El botón Probar de Configuración: la esfera sale y vuelve a entrar (o, si
+   está oculta, se asoma y se va) con esa animación (SphereAnim). false: no
+   hay esfera que mostrar (Minimizado, o Sokari sin iniciar). */
+bool ui_preview_appear(int anim);
 /* Clic en la esfera: ¿cae en la esfera? (en pantalla completa o ventana, el
    círculo del centro; la esfera flotante es toda la ventana). Y ¿del botón
    abajo al botón arriba se movió tan poco que fue un clic y no arrastrar? */
@@ -68,6 +72,8 @@ void settings_open(HINSTANCE inst, bool first_run, SettingsSavedFn on_saved);
    on_start se llama al darle a Iniciar (como después de guardar). */
 void home_open(HINSTANCE inst, bool starting, SettingsSavedFn on_start);
 HWND settings_window(void);
+/* Pruebas: cuántos píxeles se mete la sección abierta en Guardar/Cancelar (0: cabe). */
+int settings_overflow(void);
 /* Si la ventana está abierta, vuelve a leer el modo de pantalla y el estado
    del micrófono (cambiados desde la bandeja). */
 void settings_sync(void);
