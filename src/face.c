@@ -21,8 +21,9 @@ static const Shape POSE[AFF_COUNT] = {
     [AFF_NEUTRAL] = {.eye_w = 1, .eye_h = 1, .round = 4, .smile = 0.15f, .mouth_w = 1, .glow = 1},
     [AFF_JOY] = {.eye_w = 1.12f, .eye_h = 0.95f, .happy = 1, .round = 4, .eye_dy = -0.03f, .smile = 1,
                  .mouth_open = 0.3f, .mouth_w = 1.3f, .glow = 1.35f},
-    [AFF_FEAR] = {.eye_w = 1.25f, .eye_h = 1.4f, .lid_tilt = -0.35f, .round = 2.3f, .eye_dy = -0.04f, .smile = -0.2f,
-                  .mouth_w = 1, .wave = 0.3f, .mouth_o = 0.85f, .glow = 1.2f},
+    /* temor: ojos muy abiertos con la sombra gris de preocupación arriba afuera, y la «O» */
+    [AFF_FEAR] = {.eye_w = 1.2f, .eye_h = 1.4f, .lid_tilt = -0.2f, .round = 2.3f, .eye_dy = -0.04f, .shade = 0.6f,
+                  .smile = -0.3f, .mouth_w = 0.9f, .wave = 0.3f, .mouth_o = 1, .glow = 1.2f},
     [AFF_ANGER] = {.eye_w = 1.05f, .eye_h = 0.85f, .lid_top = 0.33f, .lid_tilt = 1.15f, .lid_bot = 0.1f, .round = 4,
                    .smile = -0.7f, .mouth_open = 0.12f, .mouth_w = 0.85f, .glow = 1.5f},
     [AFF_DISGUST] = {.eye_w = 1, .eye_h = 0.9f, .lid_top = 0.14f, .lid_bot = 0.24f, .asym = 0.45f, .round = 4,
@@ -34,10 +35,10 @@ static const Shape POSE[AFF_COUNT] = {
 /* Los colores (inspirados en películas de emociones, solo el color): el de
    neutral es el de siempre y lo pone quien llama. */
 static const float HIGH[AFF_COUNT][3] = {
-    {0, 0, 0}, {255, 240, 106}, {217, 194, 255}, {255, 128, 56}, {168, 240, 92}, {108, 196, 255},
+    {0, 0, 0}, {255, 240, 106}, {235, 140, 255}, {255, 128, 56}, {168, 240, 92}, {108, 196, 255},
 };
 static const float LOW[AFF_COUNT][3] = {
-    {0, 0, 0}, {242, 169, 0}, {122, 76, 217}, {214, 26, 26}, {37, 154, 58}, {29, 79, 216},
+    {0, 0, 0}, {242, 169, 0}, {150, 60, 220}, {214, 26, 26}, {37, 154, 58}, {29, 79, 216},
 };
 
 static const float LEVEL[FACE_LEVEL_COUNT] = {0.5f, 1.0f, 1.5f};
@@ -395,6 +396,9 @@ void face_step(Face *f, double dt, const FaceInput *in, SphereFace *out)
     pscale += 0.18f * w[AFF_ANGER] - 0.22f * w[AFF_SADNESS] - 0.1f * w[AFF_FEAR] - 0.1f * w[AFF_DISGUST];
     pfx += 0.06f * w[AFF_DISGUST] + jitter(t, 0.012f, 19, 27, 0) * w[AFF_ANGER] + jitter(t, 0.012f, 21, 29, 0.4f) * w[AFF_FEAR];
     g.tilt += -0.14f * w[AFF_DISGUST];
+    /* con miedo mira rápido a un lado y al otro, nervioso */
+    float glance = sinf(2 * (float)M_PI * 0.4f * t);
+    g.gx += 0.09f * w[AFF_FEAR] * glance / (fabsf(glance) + 0.15f);
     g.gy += 0.07f * w[AFF_SADNESS] + 0.02f * w[AFF_DISGUST];
     g.gx += -0.05f * w[AFF_DISGUST];
     g.lid_top += 0.15f * w[AFF_SADNESS];

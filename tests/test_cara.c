@@ -129,6 +129,34 @@ static void test_dibujo(void)
     check(((p >> 16) & 255) > (p & 255) + 20 && ((p >> 8) & 255) > (p & 255) + 20,
           "con el color de la alegría, el resplandor de los ojos es amarillo");
 
+    /* Temor: la sombra gris de preocupación apaga arriba afuera del ojo (aunque
+       al lado brille), y abajo no. */
+    sphere_face_neutral(&f);
+    sphere_set_face(r2, &f);
+    draw(r2, SPHERE_STYLE_FACE_EYES, b);
+    int ux, uy, dx2, dy2;
+    spot(-0.40f, -0.20f, &ux, &uy);
+    spot(-0.32f, 0.11f, &dx2, &dy2);
+    double up0 = bright(b, ux, uy), down0 = bright(b, dx2, dy2);
+    f.shade = 0.6f;
+    sphere_set_face(r2, &f);
+    draw(r2, SPHERE_STYLE_FACE_EYES, b);
+    snprintf(msg, sizeof msg, "temor: la sombra deja gris arriba afuera (%.0f → %.0f) y abajo no (%.0f → %.0f)", up0,
+             bright(b, ux, uy), down0, bright(b, dx2, dy2));
+    check(bright(b, ux, uy) < up0 * 0.55 && bright(b, dx2, dy2) > down0 * 0.95, msg);
+
+    /* La «O» del temor sin la línea encima (se veía como un chupón). */
+    sphere_face_neutral(&f);
+    f.smile = 0;
+    f.mouth_o = 1;
+    sphere_set_face(r2, &f);
+    draw(r2, SPHERE_STYLE_FACE_MOUTH, b);
+    int lx2, ly2, ox, oy;
+    spot(0.22f, 0.3f, &lx2, &ly2);
+    spot(0, 0.245f, &ox, &oy);
+    snprintf(msg, sizeof msg, "la «O» sin la línea encima (línea %.0f, «O» %.0f)", bright(b, lx2, ly2), bright(b, ox, oy));
+    check(bright(b, lx2, ly2) < 90 && bright(b, ox, oy) > 150, msg);
+
     /* Un símbolo: la lágrima brilla en su lugar, y sin símbolos no está. */
     sphere_face_neutral(&f);
     f.nsym = 1;

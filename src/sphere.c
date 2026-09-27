@@ -65,6 +65,8 @@ typedef struct {
     float my, mw0, thick;    /* la boca (thick 0: sin boca) */
     float tint[3], color[3]; /* el núcleo (blanco teñido) y el resplandor */
     float alpha;
+    bool shade_on;           /* la sombra gris de preocupación (temor): se aplica al final */
+    int shx0, shy0, shx1, shy1;
 } FaceGeom;
 
 struct SphereRenderer {
@@ -201,6 +203,8 @@ static void band_bounds(SphereRenderer *r, int index, int *y0, int *y1)
 
 static void face_band(SphereRenderer *r, int y0, int y1);
 static void face_glow(SphereRenderer *r);
+static void face_uv(const FaceGeom *g, float px, float py, float *u, float *v);
+static float face_shade(const FaceGeom *g, const SphereFace *p, float u, float v);
 
 static void raster_band(SphereRenderer *r, int index)
 {
@@ -244,6 +248,12 @@ static void compose_band(SphereRenderer *r, int index)
                 float bot = gb[xa * 3 + k] + (gb[xb * 3 + k] - gb[xa * 3 + k]) * fx;
                 float v = src[x * 3 + k] + 0.85f * (top + (bot - top) * fy);
                 c[k] = v > 255.0f ? 255.0f : v;
+            }
+            if (r->fg.shade_on && y >= r->fg.shy0 && y <= r->fg.shy1 && x >= r->fg.shx0 && x <= r->fg.shx1) {
+                float u, vv;
+                face_uv(&r->fg, (float)x + 0.5f, (float)y + 0.5f, &u, &vv);
+                float k = face_shade(&r->fg, &r->face, u, vv);
+                c[0] *= k, c[1] *= k, c[2] *= k;
             }
             uint32_t R = (uint32_t)c[0], G = (uint32_t)c[1], B = (uint32_t)c[2];
             uint32_t A = 255;
@@ -682,7 +692,8 @@ static void dot_style(const SphereParams *p, const Frame *f, const Projected *pr
 
 static void face_setup(SphereRenderer *r, SphereStyle style, const Frame *f, float face_cx, float face_cy, float alpha);
 static void face_uv(const FaceGeom *g, float px, float py, float *u, float *v);
-static float face_cov(const FaceGeom *g, const SphereFace *p, float u, float v);
+static float face_cov(const FaceGeom *g, const SphereFace *p, float u, float v, bool shaded);
+static float face_shade(const FaceGeom *g, const SphereFace *p, float u, float v);
 
 void sphere_render(SphereRenderer *r, double t, double angle, double voice_t, const SphereParams *p, float voice,
                    float pulse, SphereStyle style, uint32_t *out, int stride, bool premultiplied)
@@ -771,7 +782,7 @@ void sphere_render(SphereRenderer *r, double t, double angle, double voice_t, co
                 Dot *d = &r->dots[i];
                 float u, v;
                 face_uv(&r->fg, d->x, d->y, &u, &v);
-                float m = face_cov(&r->fg, &r->face, u, v);
+                float m = face_cov(&r->fg, &r->face, u, v, false);
                 if (m > 0.0f) {
                     for (int k = 0; k < 3; k++) d->c[k] += (r->fg.tint[k] * 1.3f - d->c[k]) * m;
                     d->rad *= 1.0f + 0.6f * m;
@@ -907,8 +918,9 @@ static bool face_box(const FaceGeom *g, int size, float u0, float v0, float u1, 
 }
 
 /* Un ojo: 0 izquierdo, 1 derecho. Cuánto lo cubre (0..1) en (u, v). */
-static float eye_cov(const FaceGeom *g, const SphereFace *p, int i, float u, float v)
+static float eye_cov(const FaceGeom *g, const SphereFace *p, int i, float u, float v, float *shade_zone)
 {
+    if (shade_zone) *shade_zone = 0.0f;
     float side = i ? 1.0f : -1.0f;
     float a = p->asym * (i ? -0.6f : 1.0f); /* el izquierdo se entrecierra, el derecho se abre */
     float blink = clamp01(p->blink[i]), aa = g->aa;
@@ -933,36 +945,57 @@ static float eye_cov(const FaceGeom *g, const SphereFace *p, int i, float u, flo
        apenas lo toca (sin dejar un fantasma gris). */
     float hp = clamp01(p->happy);
     if (hp > 0.001f) m *= 1.0f - cov_of(ellipse_sd(lu, lv - ry * (0.5f + 1.8f * (1.0f - hp)), rx * 1.2f, ry * 1.12f), aa);
-    if (p->shade > 0.001f) m *= 1.0f - clamp01(p->shade) * cov_of(lv - (-0.2f * ry + side * 0.5f * lu), aa);
+    /* la sombra de preocupación: arriba afuera, en diagonal */
+    if (shade_zone && p->shade > 0.001f) *shade_zone = m * cov_of(lv - (-0.2f * ry + side * 0.5f * lu), aa);
     return m;
 }
 
 static float mouth_cov(const FaceGeom *g, const SphereFace *p, float u, float v)
 {
-    float aa = g->aa, mw = g->mw0 * p->mouth_w;
-    if (fabsf(u) > mw + 0.2f || v < g->my - 0.3f || v > g->my + 0.4f) return 0.0f;
-    float x = u / mw;
-    x = x < -1.3f ? -1.3f : x > 1.3f ? 1.3f : x;
-    float q = fmaxf(1.0f - x * x, 0.0f);
-    float curve = g->my + p->smile * 0.15f * q - p->mouth_asym * 0.07f * x + p->wave * 0.03f * sinf(x * 3.0f * (float)M_PI);
-    float lower = curve + (p->mouth_open + p->talk * 0.9f) * 0.2f * powf(q, 0.8f);
-    float d = fminf(fabsf(v - curve) - g->thick * 0.5f, fmaxf(curve - v, v - lower));
-    float m = cov_of(d, aa) * clamp01((mw - fabsf(u)) / aa + 0.5f);
-    float o = smoothstep(0.35f, 0.65f, p->mouth_o); /* la «O» del temor: o está o no está */
-    if (o > 0.001f) {
-        float rx = 0.06f + 0.03f * o + 0.03f * p->talk, ry = 0.07f + 0.05f * o + 0.04f * p->talk;
-        float ring = fabsf(ellipse_sd(u, v - (g->my + 0.02f), rx, ry)) - g->thick * 0.5f;
-        m = m * fmaxf(0.0f, 1.0f - 1.5f * o) + cov_of(ring, aa) * o;
+    float aa = g->aa;
+    if (fabsf(u) > g->mw0 * p->mouth_w + 0.2f || v < g->my - 0.3f || v > g->my + 0.4f) return 0.0f;
+    /* De la línea a la «O» del temor sin encimarse (se veía como un chupón):
+       primero la línea se encoge y se apaga, y luego crece la «O». */
+    float o = smoothstep(0.35f, 0.65f, p->mouth_o);
+    float line_k = 1.0f - clamp01(o * 2.0f), ring_k = clamp01(o * 2.0f - 1.0f), m = 0.0f;
+    if (line_k > 0.0f) {
+        float mw = g->mw0 * p->mouth_w * (0.25f + 0.75f * line_k);
+        float x = u / mw;
+        x = x < -1.3f ? -1.3f : x > 1.3f ? 1.3f : x;
+        float q = fmaxf(1.0f - x * x, 0.0f);
+        float curve = g->my + p->smile * 0.15f * q - p->mouth_asym * 0.07f * x + p->wave * 0.03f * sinf(x * 3.0f * (float)M_PI);
+        float lower = curve + (p->mouth_open + p->talk * 0.9f) * 0.2f * powf(q, 0.8f);
+        float d = fminf(fabsf(v - curve) - g->thick * 0.5f, fmaxf(curve - v, v - lower));
+        m = cov_of(d, aa) * clamp01((mw - fabsf(u)) / aa + 0.5f) * line_k;
+    }
+    if (ring_k > 0.0f) {
+        /* una «O» más alta que ancha, como 😨; con la voz se abre más */
+        float k = 0.4f + 0.6f * ring_k;
+        float rx = (0.055f + 0.03f * p->talk) * k, ry = (0.085f + 0.04f * p->talk) * k;
+        float ring = fabsf(ellipse_sd(u, v - (g->my + 0.03f), rx, ry)) - g->thick * 0.5f;
+        m = fmaxf(m, cov_of(ring, aa) * ring_k);
     }
     return m;
 }
 
-/* Toda la cara en (u, v): los ojos y, si hay, la boca. */
-static float face_cov(const FaceGeom *g, const SphereFace *p, float u, float v)
+/* Toda la cara en (u, v): los ojos y, si hay, la boca. shaded: con la zona de
+   la sombra ya apagada (para el resplandor; al núcleo se la pone compose). */
+static float face_cov(const FaceGeom *g, const SphereFace *p, float u, float v, bool shaded)
 {
-    float m = fmaxf(eye_cov(g, p, 0, u, v), eye_cov(g, p, 1, u, v));
+    float z0, z1;
+    float m = fmaxf(eye_cov(g, p, 0, u, v, &z0), eye_cov(g, p, 1, u, v, &z1));
+    if (shaded) m *= 1.0f - clamp01(p->shade) * fmaxf(z0, z1);
     if (g->thick > 0.0f) m = fmaxf(m, mouth_cov(g, p, u, v));
     return m * g->alpha;
+}
+
+/* Cuánto se apaga el píxel (u, v) por la sombra: 1 = nada. */
+static float face_shade(const FaceGeom *g, const SphereFace *p, float u, float v)
+{
+    float z0, z1;
+    eye_cov(g, p, 0, u, v, &z0);
+    eye_cov(g, p, 1, u, v, &z1);
+    return 1.0f - clamp01(p->shade) * fmaxf(z0, z1) * g->alpha;
 }
 
 /* Un símbolo en (u, v): cuánto lo cubre. */
@@ -1059,7 +1092,7 @@ static void face_band(SphereRenderer *r, int y0, int y1)
             for (int x = bx0; x <= bx1; x++) {
                 float u, v;
                 face_uv(g, (float)x + 0.5f, (float)y + 0.5f, &u, &v);
-                float m = face_cov(g, p, u, v);
+                float m = face_cov(g, p, u, v, false);
                 if (m <= 0.0f) continue;
                 float *px = row + (size_t)x * 3;
                 for (int k = 0; k < 3; k++) px[k] = px[k] * (1.0f - 0.88f * m) + m * g->tint[k];
@@ -1101,7 +1134,7 @@ static void face_glow(SphereRenderer *r)
             for (int x = bx0 / f; x <= bx1 / f && x < h; x++) {
                 float u, v;
                 face_uv(g, ((float)x + 0.5f) * f, ((float)y + 0.5f) * f, &u, &v);
-                float m = face_cov(g, p, u, v);
+                float m = face_cov(g, p, u, v, true);
                 if (m <= 0.0f) continue;
                 float *d = r->glow_a + ((size_t)y * h + x) * 3;
                 for (int k = 0; k < 3; k++) d[k] += m * g->color[k] * gain * 1.6f;
@@ -1157,4 +1190,5 @@ static void face_setup(SphereRenderer *r, SphereStyle style, const Frame *f, flo
         g->color[k] = p->color[k] < 0 ? 0 : p->color[k] > 255 ? 255 : p->color[k];
         g->tint[k] = 255.0f * 0.55f + g->color[k] * 0.45f;
     }
+    g->shade_on = p->shade > 0.001f && face_box(g, r->size, -0.8f, -0.7f, 0.8f, 0.5f, &g->shx0, &g->shy0, &g->shx1, &g->shy1);
 }
