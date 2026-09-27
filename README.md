@@ -16,14 +16,13 @@ Se actualiza solo. Revisa GitHub al arrancar y cada 6 horas, y solo instala la v
 
 ### En Linux (beta)
 
-Ubuntu 24.04 o más nuevo, o Fedora 44, con GNOME. **Es beta:** está probado en la CI (GNOME 46 y 50 sin pantalla), todavía no en una PC real. Lo que falle ahí se corrige en la siguiente versión.
+Ubuntu 24.04 o más nuevo, con GNOME (Fedora está en pausa: vuelve más adelante). **Es beta:** está probado en la CI (GNOME 46 sin pantalla), todavía no en una PC real. Lo que falle ahí se corrige en la siguiente versión.
 
-1. Baja `Sokari.deb` (Ubuntu) o `Sokari.rpm` (Fedora) de la [última versión](https://github.com/podselxd/sokari/releases/latest).
+1. Baja `Sokari.deb` de la [última versión](https://github.com/podselxd/sokari/releases/latest).
 2. Instálalo desde la carpeta donde quedó (pide tu contraseña):
 
    ```bash
-   sudo apt install ./Sokari.deb    # Ubuntu
-   sudo dnf install ./Sokari.rpm    # Fedora
+   sudo apt install ./Sokari.deb
    ```
 
 3. Cierra sesión y vuelve a entrar **una vez**. Así GNOME carga la extensión de Sokari, la que le deja ver tus ventanas y oprimir teclas. `sokari --revisar-gnome` te dice si ya funciona.
@@ -45,7 +44,7 @@ No se actualiza solo, porque instalar pide tu contraseña: te avisa cuando sale 
   
   Con tu voz todavía no está medido. Si no te oye, usa **Ctrl+Alt+J**; lo que lo arregla es reentrenarlo con grabaciones de tu voz. Subir la sensibilidad ayuda poco. Detalles en [Entrenar "Hey Sokari"](#entrenar-hey-sokari).
 - Después de cada respuesta te sigue escuchando unos segundos, sin que repitas "Hey Sokari".
-- Para callarla mientras habla: di **"Hey Sokari"**, aprieta **Ctrl+Alt+J** o dale **un clic a la esfera**. Todo lo que dice se puede saltar, también las explicaciones largas. Si le das clic mientras piensa, no dice la respuesta (lo que ya hizo no se deshace). Con ella quieta, un clic no hace nada, y si arrastras la esfera flotante, no cuenta como clic. Otros ruidos no la interrumpen.
+- Para callarla mientras habla: **háblale encima** («espera», «ya», o de una vez lo que quieres), di **"Hey Sokari"**, aprieta **Ctrl+Alt+J** o dale **un clic a la esfera**. Todo lo que dice se puede saltar, también las explicaciones largas. Si le hablas encima, se pausa y te oye: si dijiste algo, se calla y lo toma como tu siguiente orden (no lo repites); si fue ruido, sigue donde iba. Se apaga en Configuración → Voz y audio («Callarme con solo hablarme encima»), por ejemplo si alguien más platica cerca. Si le das clic mientras piensa, no dice la respuesta (lo que ya hizo no se deshace). Con ella quieta, un clic no hace nada, y si arrastras la esfera flotante, no cuenta como clic.
 - Para cerrar la conversación dile "adiós", "ya vete", "eso es todo", "hasta mañana", "luego hablamos" o "me voy a dormir". También termina cuando Sokari se despide o si dejas de hablarle. Si configuraste una palabra de apagado y la dices, Sokari se cierra al instante.
 - Con **Aparecer solo cuando le hablas** (Configuración → Pantalla, prendida de fábrica), la esfera aparece en tu modo de pantalla al hablarle y se esconde al terminar. Al abrir Sokari se ve y se queda hasta tu primera conversación.
 - **Al aparecer y desaparecer** (Configuración → Pantalla), la esfera se anima: **Materializarse** (de fábrica: llega en pedazos y se junta; al irse se dispersa), **Deslizarse** (sube desde abajo de la pantalla y baja al irse), **Zoom** (crece desde un punto y se encoge) o **Ninguna**. Entra en 1 segundo y sale en 0.8. **Probar** te la muestra sin guardar. En Minimizado no hay animación.
@@ -84,7 +83,9 @@ Modos de pantalla:
 
 F11 solo funciona en Ventana y Minimizado, cuando la ventana tiene el foco. En los otros modos la esfera nunca toma el teclado, para que las teclas que manda Sokari lleguen a tu app. En esos modos cambias de modo desde la bandeja o la ventana de Inicio.
 
-**Interrumpirla:** en cualquier momento, mientras piensa o mientras habla, «Hey Sokari», Ctrl+Alt+J o un clic en la esfera la paran. Si te escuchó mal, ya no hace las acciones que faltaban ni dice la respuesta (lo que ya hizo no se deshace). Con «Hey Sokari» o el atajo te escucha de inmediato para la orden nueva; con un clic solo se calla.
+**Interrumpirla:** en cualquier momento, mientras piensa o mientras habla, «Hey Sokari», Ctrl+Alt+J o un clic en la esfera la paran; mientras habla, también hablarle encima. Si te escuchó mal, ya no hace las acciones que faltaban ni dice la respuesta (lo que ya hizo no se deshace). Con «Hey Sokari» o el atajo te escucha de inmediato para la orden nueva; con un clic solo se calla.
+
+**Cómo te oye encima de su voz (cancelación de eco):** su voz sale por la bocina y entra al micrófono, y antes tapaba la tuya (por eso «Hey Sokari» casi no funcionaba mientras hablaba). Como Sokari sabe exactamente qué está diciendo, aprende cómo le llega al micrófono y lo resta (`src/aec.c`, `src/eco.c`): mide sola con cuánto retraso se oye (y lo vuelve a medir si cambias de bocina) y le quita a su voz entre 18 y 30 dB. Sobre lo que queda busca «Hey Sokari» y tu voz. Que le hablas encima se decide con cuidado, porque antes se cortaba sola con cualquier ruido: tiene que ser voz, bastante más fuerte que lo que queda de la suya y no ser su propia voz mal quitada; y aun así primero se pausa para oírte. Mientras recién aprende su eco (los primeros segundos que habla), solo se nota tu voz en sus pausas; «Hey Sokari» funciona siempre. Con bocinas a todo volumen pegadas al micrófono ningún cancelador es perfecto: con audífonos no hay eco. `tests/test_eco.c` lo prueba en un cuarto simulado (retrasos, rebotes, bocina que satura, ventilador, tu voz encima) y `tests/linux/test_eco_linux.c` con el servidor de sonido de verdad.
 
 **Estilo:** en Pantalla, las 5 miniaturas se mueven; clic en una y la esfera la muestra al momento (Guardar la deja, Cancelar la regresa).
 
@@ -239,7 +240,7 @@ En cada push, GitHub Actions compila en un Windows real (una advertencia del com
 
 ### En Linux
 
-La versión de Linux (Ubuntu 24.04 o más nuevo, y Fedora 44) tiene su ventana, la misma esfera y el mismo agente, herramientas y confirmaciones que en Windows. Para usarlo basta el paquete ([En Linux (beta)](#en-linux-beta)); esto es para compilarlo:
+La versión de Linux (Ubuntu 24.04 o más nuevo; Fedora, en pausa) tiene su ventana, la misma esfera y el mismo agente, herramientas y confirmaciones que en Windows. Para usarlo basta el paquete ([En Linux (beta)](#en-linux-beta)); esto es para compilarlo:
 
 ```bash
 # Ubuntu (Fedora: sudo dnf install gcc make pkgconf-pkg-config libcurl-devel pulseaudio-libs-devel glib2-devel
@@ -262,8 +263,8 @@ make -f Makefile.linux tests && sh tests/correr_linux.sh
 - **La malla (tus otras PCs):** igual que en Windows: escucha solo en la IP de Tailscale de esta PC (`tailscale0`), pide el mismo secreto o reconoce tu misma cuenta de Tailscale, y «Detectar» también encuentra PCs con Linux. En la ventana, en «Tus PCs» (o desde la terminal: `sokari --revisar-malla`, `sokari --detectar-pcs` y `sokari --permitir-firewall`). Este último abre el puerto 8765 solo para tu red de Tailscale, en ufw (Ubuntu) o firewalld (Fedora), y pide tu contraseña. Tailscale normalmente deja pasar lo suyo aunque el firewall esté prendido, y Fedora Workstation ya trae ese puerto abierto.
 - La configuración va en `~/.config/sokari/config.env` (tu key: `GROQ_API_KEY=...`) y la memoria en `~/.local/share/sokari`; las dos solo las puede leer tu usuario. El estado afectivo (`afecto.json`, `afecto.jsonl`) también va en `~/.config/sokari/`.
 - El código de Linux está en `src/linux/`; `src/linux/include/windows.h` da los hilos, candados y eventos con la misma forma que en Windows, así el agente, la memoria, el detector de "Hey Sokari" y demás son el mismo código en los dos. Los programas externos (Piper, espeak-ng, paplay) se corren sin shell y con el texto por su entrada, nunca como argumento.
-- La CI también compila y prueba en Ubuntu 24.04 (con un servidor de sonido de prueba) y en Fedora 44, y prueba la extensión en un GNOME Shell de verdad sin pantalla (GNOME 46 de Ubuntu y GNOME 50 de Fedora) con dos ventanas de prueba: `make -f Makefile.linux prueba-gnome && sh tests/linux/gnome/probar_extension.sh`.
-- **Los paquetes:** `sh linux/empaquetar.sh deb` (en Ubuntu 24.04) arma `Sokari.deb` y `sh linux/empaquetar.sh rpm` (en Fedora 44, con `rpm-build`) arma `Sokari.rpm`. Instalan `/usr/bin/sokari` (de root, como lo pide la extensión), la extensión para todos los usuarios, el ícono y la entrada del menú de apps. La CI los arma, los instala y corre la prueba de GNOME contra el Sokari instalado; `sokari --revisar-gnome` es esa misma revisión.
+- La CI también compila y prueba en Ubuntu 24.04 (con un servidor de sonido de prueba), y prueba la extensión en un GNOME Shell de verdad sin pantalla (GNOME 46) con dos ventanas de prueba. Fedora 44 y su GNOME 50 están en pausa hasta su port: `make -f Makefile.linux prueba-gnome && sh tests/linux/gnome/probar_extension.sh`.
+- **Los paquetes:** `sh linux/empaquetar.sh deb` (en Ubuntu 24.04) arma `Sokari.deb`. `sh linux/empaquetar.sh rpm` (en Fedora 44, con `rpm-build`) arma `Sokari.rpm`, pero está en pausa: ni la CI ni los releases lo arman. Instalan `/usr/bin/sokari` (de root, como lo pide la extensión), la extensión para todos los usuarios, el ícono y la entrada del menú de apps. La CI los arma, los instala y corre la prueba de GNOME contra el Sokari instalado; `sokari --revisar-gnome` es esa misma revisión.
 
 ### Publicar una versión
 
@@ -274,7 +275,7 @@ make -f Makefile.linux tests && sh tests/correr_linux.sh
 3. Actions:
    - compila y prueba el exe y la app;
    - revisa que la versión coincida con el código;
-   - crea el release con `Sokari.exe`, `Sokari.apk` (la app del celular, con la misma versión), `Sokari.deb` y `Sokari.rpm` (Linux, marcado como beta en las notas).
+   - crea el release con `Sokari.exe`, `Sokari.apk` (la app del celular, con la misma versión) y `Sokari.deb` (Linux, marcado como beta en las notas).
    
    El APK necesita los secretos de su llave de firma (ver [`movil/README.md`](movil/README.md)). Sin ellos, el release sale sin `Sokari.apk` y lo avisa en sus notas.
 4. Si quedó como borrador, revísalo y publícalo. Hasta que lo publiques, nadie se actualiza.

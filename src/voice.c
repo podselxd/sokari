@@ -15,6 +15,7 @@
 #include "app.h"
 #include "audio.h"
 #include "config.h"
+#include "eco.h"
 #include "groq.h"
 #include "log.h"
 #include "memory.h"
@@ -181,24 +182,103 @@ int voice_list_voices(TtsVoice **out)
     return n;
 }
 
-/* Cómo la pararon (mientras piensa o mientras habla). */
-typedef enum { STOP_NONE, STOP_CLICK, STOP_TRIGGER, STOP_WAKE } StopKind;
+/* Cómo la pararon (mientras piensa o mientras habla). STOP_TALK: le hablaste
+   encima, y lo que dijiste (en g_talk_text) es tu siguiente orden. */
+typedef enum { STOP_NONE, STOP_CLICK, STOP_TRIGGER, STOP_WAKE, STOP_TALK } StopKind;
+
+#define TALK_PREROLL 6                            /* 480 ms antes de notarlo: no se come el principio */
+#define TALK_HOLD_MAX (10 * MIC_RATE / MIC_FRAME) /* en pausa te oye hasta 10 s */
 
 typedef struct {
     bool allow_interrupt;
     StopKind stop;
+    /* hablarle encima */
+    bool barge;
+    EcoTalk talk;
+    int16_t recent[TALK_PREROLL][MIC_FRAME]; /* lo último que oyó, ya sin su voz */
+    int nrecent;
+    bool held;
+    int held_frames;
+    Recording rec;
 } PlayCtx;
 
-static bool input_read_nowait(int16_t *f);
+static char *g_talk_text; /* lo que le dijiste encima: tu siguiente orden */
 
-/* Mientras habla, la callan "Hey Sokari", el atajo o un clic en la esfera.
-   Antes bastaba cualquier ruido un poco más fuerte que el silencio del
-   cuarto, y se cortaba a media frase casi siempre. */
+static char *take_talk_text(void)
+{
+    char *t = g_talk_text;
+    g_talk_text = NULL;
+    return t;
+}
+
+static bool input_read_nowait_pos(int16_t *f, uint64_t *pos);
+
+/* Le hablaste encima: se pausa (sin cortar la frase) y te oye hasta que te
+   callas, desde un poco antes de que se notara. */
+static void talk_hold(PlayCtx *pc)
+{
+    speaker_hold(true);
+    pc->held = true;
+    pc->held_frames = 0;
+    rec_begin(&pc->rec, end_silence_frames((EndSilence)config_end_silence()));
+    rec_set_background(&pc->rec, listener_background(g_listener)); /* la tele de atrás no la tiene en pausa */
+    rec_seed(&pc->rec, pc->recent[0], pc->nrecent);
+    app_set_state(JV_LISTENING);
+    log_msg("Me hablaste encima: me pauso para oírte.");
+}
+
+/* En pausa, un cuadro más de lo que dices. Devuelve true cuando ya decidió:
+   sigue hablando (era ruido o no se entendió nada) o se calla (pc->stop =
+   STOP_TALK, con lo que dijiste en g_talk_text). */
+static bool talk_heard(PlayCtx *pc, const int16_t *clean)
+{
+    bool voice = listener_feed(g_listener, clean, (float)g_silence);
+    if (!rec_feed(&pc->rec, clean, voice) && ++pc->held_frames < TALK_HOLD_MAX) return false;
+    size_t n = 0;
+    float voice_s = 0;
+    int16_t *buf = rec_take(&pc->rec, &n, &voice_s);
+    rec_free(&pc->rec);
+    pc->held = false;
+    pc->talk.hist = 0;
+    pc->nrecent = 0;
+    const bool heard = buf != NULL;
+    char *text = NULL;
+    if (buf) {
+        GroqError err = {0};
+        app_status("Escuchando lo que dijiste…");
+        text = groq_transcribe(buf, n, MIC_RATE, &err);
+        app_status("");
+        if (!text) log_msg("No pude transcribir lo que me dijiste encima: %s", err.detail ? err.detail : "?");
+        groq_error_free(&err);
+        free(buf);
+    }
+    if (text && *text) {
+        log_msg("Me callo: me dijiste «%s».", text);
+        free(g_talk_text);
+        g_talk_text = text;
+        pc->stop = STOP_TALK;
+        return true;
+    }
+    free(text);
+    log_msg(heard ? "No entendí lo que me dijiste encima: sigo." : "Era ruido, no tu voz: sigo.");
+    app_set_state(JV_SPEAKING);
+    speaker_hold(false);
+    return true;
+}
+
+/* Mientras habla la callan «Hey Sokari», el atajo, un clic en la esfera y
+   (si está prendido) hablarle encima. Lo que oye el micrófono pasa antes por
+   el cancelador de eco (eco.h): sin su voz, «Hey Sokari» se oye aunque ella
+   esté hablando. Antes bastaba cualquier ruido un poco más fuerte que el
+   silencio del cuarto y se cortaba sola a media frase; ahora tiene que ser
+   voz, bastante más fuerte que lo que queda de la suya, y aun así primero se
+   pausa para oírte: si era ruido, sigue donde iba. */
 static bool play_cb(float level, void *ctx)
 {
     PlayCtx *pc = ctx;
-    app_set_level(level);
+    app_set_level(pc->held ? 0 : level);
     if (WaitForSingleObject(g_quit, 0) == WAIT_OBJECT_0) return false;
+    if (pc->stop != STOP_NONE) return false; /* ya se decidió (el último aviso de speaker_play) */
     if (!pc->allow_interrupt) return true;
     if (WaitForSingleObject(g_skip, 0) == WAIT_OBJECT_0) {
         log_msg("Callada con un clic en la esfera.");
@@ -210,14 +290,29 @@ static bool play_cb(float level, void *ctx)
         pc->stop = STOP_TRIGGER;
         return false;
     }
-    int16_t f[MIC_FRAME];
-    while (input_read_nowait(f)) {
-        if (g_ww && ww_process(g_ww, f) > config_wake_threshold()) {
+    int16_t f[MIC_FRAME], clean[MIC_FRAME];
+    uint64_t pos;
+    while (input_read_nowait_pos(f, &pos)) {
+        EcoInfo info;
+        eco_frame(pos, f, clean, &info);
+        if (pc->held) {
+            if (talk_heard(pc, clean)) return pc->stop == STOP_NONE;
+            continue;
+        }
+        if (g_ww && ww_process(g_ww, clean) > config_wake_threshold()) {
             log_msg("Interrumpido: dijiste \"Hey Sokari\".");
             ww_reset(g_ww);
             pc->stop = STOP_WAKE;
             return false;
         }
+        if (!pc->barge) continue;
+        bool voice = listener_feed(g_listener, clean, (float)g_silence);
+        if (pc->nrecent == TALK_PREROLL) {
+            memmove(pc->recent[0], pc->recent[1], sizeof pc->recent[0] * (TALK_PREROLL - 1));
+            pc->nrecent--;
+        }
+        memcpy(pc->recent[pc->nrecent++], clean, sizeof pc->recent[0]);
+        if (eco_talk_feed(&pc->talk, voice, &info)) talk_hold(pc);
     }
     return true;
 }
@@ -262,7 +357,7 @@ static StopKind speak(const char *text)
     WakeAllConditionVariable(&S.cv);
     LeaveCriticalSection(&S.lock);
 
-    PlayCtx ctx = {.allow_interrupt = allow_interrupt && !g_sim_mode, .stop = STOP_NONE};
+    PlayCtx ctx = {.allow_interrupt = allow_interrupt && !g_sim_mode, .stop = STOP_NONE, .barge = config_barge_in()};
     bool cut = false;
     for (;;) {
         EnterCriticalSection(&S.lock);
@@ -298,10 +393,12 @@ static StopKind speak(const char *text)
     S.job_active = false;
     LeaveCriticalSection(&S.lock);
     app_set_level(0);
+    if (ctx.held) rec_free(&ctx.rec);
+    StopKind stop = cut ? (ctx.stop != STOP_NONE ? ctx.stop : STOP_CLICK) : STOP_NONE;
     /* Si lo callaste con "Hey Sokari", lo que dices justo después es tu orden:
-       no se tira. */
-    if (!cut) input_flush();
-    return cut ? (ctx.stop != STOP_NONE ? ctx.stop : STOP_CLICK) : STOP_NONE;
+       no se tira. Lo que le dijiste encima ya se oyó entero. */
+    if (stop == STOP_NONE || stop == STOP_TALK) input_flush();
+    return stop;
 }
 
 /* -------------------------------------------------------------- entrada --- */
@@ -323,6 +420,11 @@ static bool input_read(int16_t *f, unsigned timeout_ms)
 static bool input_read_nowait(int16_t *f)
 {
     return g_sim_mode ? false : mic_read_nowait(f);
+}
+
+static bool input_read_nowait_pos(int16_t *f, uint64_t *pos)
+{
+    return g_sim_mode ? false : mic_read_nowait_pos(f, pos);
 }
 
 static void input_flush(void)
@@ -452,7 +554,7 @@ static void think_job_release(ThinkJob *j)
 static DWORD WINAPI think_thread(LPVOID arg)
 {
     ThinkJob *j = arg;
-    j->text = groq_transcribe(j->audio, j->n, MIC_RATE, &j->err);
+    if (!j->text) j->text = groq_transcribe(j->audio, j->n, MIC_RATE, &j->err);
     if (j->text && *j->text && !InterlockedCompareExchange(&j->cancel, 0, 0)) {
         log_msg("Tú: %s", j->text);
         app_subtitle(true, j->text);
@@ -508,20 +610,26 @@ static bool after_stop(StopKind stop)
     return false;
 }
 
-static bool handle_turn(const int16_t *audio, size_t n)
+/* Una orden: tu audio, o (said, que se queda aquí) lo que le dijiste encima
+   mientras hablaba, ya en texto. */
+static bool handle_turn(const int16_t *audio, size_t n, char *said)
 {
-    if (n < (size_t)(MIC_RATE * 3 / 10)) return true;
+    if (!said && n < (size_t)(MIC_RATE * 3 / 10)) return true;
     /* Un clic o un Ctrl+Alt+J de mientras te escuchaba no cuentan: callar es
        para lo que diga desde aquí. */
     ResetEvent(g_skip);
     ResetEvent(g_trigger);
     uint64_t t_quiet = GetTickCount64(); /* te acabas de callar */
     app_set_state(JV_THINKING);
-    app_status("Escuchando lo que dijiste…");
     ThinkJob *j = xcalloc(1, sizeof *j);
-    j->audio = xmalloc(n * sizeof *audio);
-    memcpy(j->audio, audio, n * sizeof *audio);
-    j->n = n;
+    if (said) {
+        j->text = said;
+    } else {
+        app_status("Escuchando lo que dijiste…");
+        j->audio = xmalloc(n * sizeof *audio);
+        memcpy(j->audio, audio, n * sizeof *audio);
+        j->n = n;
+    }
     j->refs = 2;
     j->done = CreateEventW(NULL, TRUE, FALSE, NULL);
     HANDLE th = CreateThread(NULL, 0, think_thread, j, 0, NULL);
@@ -578,6 +686,7 @@ static bool handle_turn(const int16_t *audio, size_t n)
         return false;
     }
     if (cut == STOP_WAKE || cut == STOP_TRIGGER) return after_stop(cut);
+    if (cut == STOP_TALK) return true; /* sigue con lo que le dijiste encima */
     return keep;
 }
 
@@ -604,21 +713,30 @@ static int continued_speech(const int16_t *history, int nhist, int16_t seed[][MI
 static void conversation(const int16_t *history, int nhist)
 {
     app_set_state(JV_LISTENING);
+    /* Si empezó porque le hablaste encima (a un recordatorio, a «Sokari en
+       línea»…), lo que dijiste ya es la orden: sin tono. */
+    const bool talked = g_talk_text != NULL;
     int16_t seed[WAKE_HISTORY_FRAMES + LOOKAHEAD_FRAMES][MIC_FRAME];
-    int nseed = nhist ? continued_speech(history, nhist, seed) : 0;
+    int nseed = !talked && nhist ? continued_speech(history, nhist, seed) : 0;
     if (nseed) {
         log_msg("Seguiste hablando después del nombre: tomo la orden sin tono.");
-    } else {
+    } else if (!talked) {
         if (!g_sim_mode) sound_activation();
         input_flush();
     }
     conv_new_session(g_conv);
     for (bool first = true;; first = false) {
         app_set_state(JV_LISTENING);
-        size_t n;
-        int16_t *audio = first && nseed ? record_command(seed[0], nseed, &n) : record_command(NULL, 0, &n);
-        bool cont = audio && n >= (size_t)(MIC_RATE * 3 / 10) && handle_turn(audio, n);
-        free(audio);
+        char *said = take_talk_text();
+        bool cont;
+        if (said) {
+            cont = handle_turn(NULL, 0, said);
+        } else {
+            size_t n;
+            int16_t *audio = first && nseed ? record_command(seed[0], nseed, &n) : record_command(NULL, 0, &n);
+            cont = audio && n >= (size_t)(MIC_RATE * 3 / 10) && handle_turn(audio, n, NULL);
+            free(audio);
+        }
         if (!cont || WaitForSingleObject(g_quit, 0) == WAIT_OBJECT_0) break;
     }
     app_set_state(JV_IDLE);
@@ -773,6 +891,13 @@ static DWORD WINAPI voice_main(LPVOID arg)
     uint64_t last_data = GetTickCount64();
     while (WaitForSingleObject(g_quit, 0) != WAIT_OBJECT_0) {
         if (InterlockedExchange(&g_settings_dirty, 0)) apply_settings();
+        if (g_talk_text) { /* le hablaste encima a algo que decía fuera de una plática */
+            conversation(NULL, 0);
+            if (ww) ww_reset(ww);
+            input_flush();
+            nhist = 0;
+            continue;
+        }
         if (InterlockedExchange(&g_test_audio, 0)) {
             sound_chime();
             ResetEvent(g_skip); /* un clic viejo no corta la prueba */

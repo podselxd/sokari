@@ -47,6 +47,7 @@ typedef struct {
     bool full_access;       /* acceso completo: no pide permiso para nada, salvo antes de borrar */
     bool mexa;              /* habla como mexicano ("háblame como mexa"); entenderlo, siempre */
     bool duck;              /* baja el volumen de la PC mientras te escucha */
+    bool barge_in;          /* hablarle encima la calla (sin decir «Hey Sokari») */
     bool face_symbols;      /* la cara con símbolos: lágrima, destellos, gota de sudor, «?», enojo, «…» */
 } AppConfig;
 
@@ -101,6 +102,7 @@ bool config_full_access(void);
 bool config_mexa(void);
 int config_end_silence(void);
 bool config_duck(void);
+bool config_barge_in(void);
 void config_set_mexa(bool on);
 void config_set_full_access(bool on);
 void config_set_mic_muted(bool muted);
