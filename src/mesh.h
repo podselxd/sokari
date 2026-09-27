@@ -98,6 +98,9 @@ bool tailscale_parse_shields_up(const char *out);
    firewall, lo que ve tu red y cada PC registrada) y devuelve el reporte
    (heap), con ✓ o ✗ en cada renglón. Tarda unos segundos. */
 char *mesh_diagnose(void);
+/* «Detectar mis PCs»: registra las PCs de tu Tailscale que falten y dice qué
+   hizo (heap). */
+char *mesh_detect_devices(void);
 
 /* Para las pruebas: escuchar en una IP cualquiera sin esperar a Tailscale, y
    mandar una orden a una IP ya revisada (*reply con la respuesta si hubo). */
