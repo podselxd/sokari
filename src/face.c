@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,7 +23,7 @@ static const Shape POSE[AFF_COUNT] = {
     [AFF_JOY] = {.eye_w = 1.12f, .eye_h = 0.95f, .happy = 1, .round = 4, .eye_dy = -0.03f, .smile = 1,
                  .mouth_open = 0.3f, .mouth_w = 1.3f, .glow = 1.35f},
     /* temor: ojos muy abiertos con la sombra gris de preocupación arriba afuera, y la «O» */
-    [AFF_FEAR] = {.eye_w = 1.2f, .eye_h = 1.4f, .lid_tilt = -0.2f, .round = 2.3f, .eye_dy = -0.04f, .shade = 0.6f,
+    [AFF_FEAR] = {.eye_w = 1.2f, .eye_h = 1.4f, .lid_tilt = -0.2f, .round = 2.3f, .eye_dy = -0.04f, .shade = 0.75f,
                   .smile = -0.3f, .mouth_w = 0.9f, .wave = 0.3f, .mouth_o = 1, .glow = 1.2f},
     [AFF_ANGER] = {.eye_w = 1.05f, .eye_h = 0.85f, .lid_top = 0.33f, .lid_tilt = 1.15f, .lid_bot = 0.1f, .round = 4,
                    .smile = -0.7f, .mouth_open = 0.12f, .mouth_w = 0.85f, .glow = 1.5f},
@@ -53,6 +54,8 @@ static const struct {
     [FACE_G_INFLATE] = {"se infla", 0.9f}, [FACE_G_RECOIL] = {"se aparta", 1.3f},
     [FACE_G_DOUBT] = {"duda", 2.0f},       [FACE_G_BLINK2] = {"parpadeo doble", 0.9f},
     [FACE_G_LOOK] = {"mira alrededor", 2.4f}, [FACE_G_WINK] = {"guiño", 1.1f},
+    [FACE_G_HAPPY] = {"ojos felices", 1.7f}, [FACE_G_SURPRISE] = {"sorpresa", 1.4f},
+    [FACE_G_SIGH] = {"suspiro", 2.4f},     [FACE_G_BLUSH] = {"sonrojo", 2.4f},
 };
 
 typedef struct {
@@ -81,7 +84,7 @@ typedef struct {
     float gx, gy;
     float blink[2];
     float eye_k; /* multiplica el tamaño de los ojos */
-    float lid_top, asym, happy, mouth_open, mouth_asym, smile;
+    float lid_top, asym, happy, mouth_open, mouth_asym, smile, blush;
     float glow; /* multiplica */
     float follow;
     int nsym;
@@ -244,6 +247,58 @@ static void gesture_eval(FaceGesture g, float t, GOut *o)
         spark(o, t, 0.4f, -0.62f, -0.42f);
         break;
     }
+    case FACE_G_HAPPY: { /* «^ ^», un saltito y se mece */
+        float on = smooth(t / 0.18f) * (1 - smooth((t - 1.35f) / 0.3f));
+        o->happy = on;
+        o->fy = KF(t, 0, 0, 0.15f, 0.03f, 0.35f, -0.08f, 0.6f, 0, 0.75f, -0.03f, 0.95f, 0);
+        o->stretch = KF(t, 0, 0, 0.15f, -0.08f, 0.3f, 0.07f, 0.55f, -0.03f, 0.7f, 0);
+        o->tilt = 0.12f * on * sinf(2 * (float)M_PI * 1.6f * t);
+        o->glow = 1 + 0.25f * on;
+        o->smile = 0.3f * on;
+        o->follow = 1;
+        spark(o, t, 0.25f, -0.75f, -0.6f);
+        spark(o, t, 0.5f, 0.78f, -0.55f);
+        break;
+    }
+    case FACE_G_SURPRISE: { /* ojos grandes de golpe, un brinco y «!» */
+        float on = smooth(t / 0.15f) * (1 - smooth((t - 0.95f) / 0.35f));
+        o->eye_k = KF(t, 0, 1, 0.1f, 1.38f, 0.3f, 1.3f, 1.0f, 1.22f, 1.4f, 1);
+        o->fy = KF(t, 0, 0, 0.08f, 0.04f, 0.2f, -0.12f, 0.45f, -0.04f, 0.7f, 0, 1.4f, 0);
+        o->stretch = KF(t, 0, 0, 0.08f, -0.12f, 0.2f, 0.14f, 0.45f, 0.02f, 0.7f, 0);
+        o->glow = 1 + 0.35f * on;
+        o->gy = -0.04f * on;
+        o->mouth_open = 0.45f * on;
+        o->follow = 1;
+        float b = blinkf(t, 1.05f, 0.06f, 0.04f, 0.1f);
+        o->blink[0] = o->blink[1] = b;
+        add_sym(o, SPHERE_SYM_EXCLAIM, 0.7f, -0.78f, pop(t, 0.12f), 1 - smooth((t - 1.05f) / 0.3f), 0);
+        break;
+    }
+    case FACE_G_SIGH: { /* toma aire, lo suelta despacio y baja la mirada */
+        o->scale = KF(t, 0, 0, 0.55f, 0.06f, 1.5f, -0.07f, 2.4f, 0);
+        o->fy = KF(t, 0, 0, 0.55f, -0.05f, 1.5f, 0.08f, 2.4f, 0);
+        o->stretch = KF(t, 0, 0, 0.55f, 0.05f, 1.5f, -0.06f, 2.4f, 0);
+        float droop = smooth((t - 0.5f) / 0.5f) * (1 - smooth((t - 1.9f) / 0.5f));
+        o->lid_top = 0.3f * droop;
+        o->gy = 0.08f * droop;
+        o->smile = -0.25f * droop;
+        o->glow = 1 - 0.25f * droop;
+        o->follow = 1;
+        break;
+    }
+    case FACE_G_BLUSH: { /* chapitas, ojos contentos y la mirada de lado, apenada */
+        float on = smooth(t / 0.35f) * (1 - smooth((t - 1.9f) / 0.5f));
+        o->blush = on;
+        o->happy = 0.55f * on;
+        o->gx = -0.08f * on;
+        o->gy = 0.06f * on;
+        o->tilt = 0.18f * on;
+        o->scale = -0.03f * on;
+        o->fy = 0.02f * on;
+        o->smile = 0.2f * on;
+        o->follow = 0.8f;
+        break;
+    }
     default:
         break;
     }
@@ -303,6 +358,7 @@ static void mix(GOut *acc, const GOut *g, float k)
     acc->eye_k *= 1 + (g->eye_k - 1) * k;
     acc->lid_top += g->lid_top * k, acc->asym += g->asym * k, acc->happy += g->happy * k;
     acc->mouth_open += g->mouth_open * k, acc->mouth_asym += g->mouth_asym * k, acc->smile += g->smile * k;
+    acc->blush += g->blush * k;
     acc->glow *= 1 + (g->glow - 1) * k;
     for (int i = 0; i < g->nsym && acc->nsym < 3; i++) acc->sym[acc->nsym++] = g->sym[i];
 }
@@ -326,6 +382,18 @@ static void react(Face *f, const FaceInput *in)
         case AFF_CUE_DELICATE: play(f, FACE_G_DOUBT, 1); break;
         case AFF_CUE_FAIL: play(f, FACE_G_SHAKE, 1); break;
         case AFF_CUE_ERROR: play(f, FACE_G_SHAKE, 0.8f); break;
+        case AFF_CUE_HAPPY: play(f, FACE_G_HAPPY, 1); break;
+        case AFF_CUE_SURPRISE: play(f, FACE_G_SURPRISE, 1); break;
+        case AFF_CUE_SIGH: play(f, FACE_G_SIGH, 1); break;
+        case AFF_CUE_BLUSH: play(f, FACE_G_BLUSH, 1); break;
+        case AFF_CUE_GOODBYE: play(f, FACE_G_WINK, 1); break;
+        /* estos dos no cortan otro gesto: son de adorno */
+        case AFF_CUE_SEARCH:
+            if (f->t >= f->cur_until) play(f, FACE_G_LOOK, 1);
+            break;
+        case AFF_CUE_SUCCESS:
+            if (f->t >= f->cur_until) play(f, FACE_G_BOUNCE, 0.5f);
+            break;
         default: break;
         }
     }
@@ -333,12 +401,17 @@ static void react(Face *f, const FaceInput *in)
         f->dominant = in->affect.dominant;
         /* Si recién rebotó o asintió por lo mismo (un chiste, un gracias), no rebota otra vez. */
         bool busy = f->t < f->cur_until && f->t - f->cur.t0 < 0.6;
+        /* Y un gesto que dice algo (sonrojarse, suspirar…) no lo tapa el de entrar a la emoción. */
+        bool telling = f->t < f->cur_until && f->t - f->cur.t0 < 1.2 &&
+                       (f->cur.g == FACE_G_HAPPY || f->cur.g == FACE_G_SURPRISE || f->cur.g == FACE_G_SIGH ||
+                        f->cur.g == FACE_G_BLUSH);
         static const FaceGesture ON_ENTER[AFF_COUNT] = {
             [AFF_JOY] = FACE_G_BOUNCE,   [AFF_FEAR] = FACE_G_TREMBLE,  [AFF_ANGER] = FACE_G_INFLATE,
             [AFF_DISGUST] = FACE_G_RECOIL, [AFF_SADNESS] = FACE_G_SHRINK,
         };
         FaceGesture g = f->dominant >= 0 && f->dominant < AFF_COUNT ? ON_ENTER[f->dominant] : FACE_G_NONE;
-        if (g && !(busy && g == FACE_G_BOUNCE && (f->cur.g == FACE_G_BOUNCE || f->cur.g == FACE_G_NOD))) play(f, g, 1);
+        if (g && !telling && !(busy && g == FACE_G_BOUNCE && (f->cur.g == FACE_G_BOUNCE || f->cur.g == FACE_G_NOD)))
+            play(f, g, 1);
     }
 }
 
@@ -368,13 +441,21 @@ void face_step(Face *f, double dt, const FaceInput *in, SphereFace *out)
     for (int k = 0; k < AFF_COUNT; k++) w[k] = clampf(a->weights[k], 0, 1);
     react(f, in);
 
-    /* La forma: la mezcla de las poses, más o menos marcada según el nivel. */
+    /* La forma: la mezcla de las poses, más o menos marcada según el nivel.
+       Los párpados (la diagonal que parece ceja) y la sombra del temor solo
+       salen con una emoción de veras: en neutral siempre pesan un poquito las
+       demás, y eso dejaba una rayita en diagonal en los ojos. */
+    float gw[AFF_COUNT];
+    for (int k = 0; k < AFF_COUNT; k++) gw[k] = k == AFF_NEUTRAL ? w[k] : w[k] * smooth((w[k] - 0.25f) / 0.3f);
     Shape s;
     float *sv = (float *)&s;
     const float *nv = (const float *)&POSE[AFF_NEUTRAL];
     for (int i = 0; i < SHAPE_N; i++) {
+        bool brow = i == (int)(offsetof(Shape, lid_top) / sizeof(float)) || i == (int)(offsetof(Shape, lid_tilt) / sizeof(float)) ||
+                    i == (int)(offsetof(Shape, lid_bot) / sizeof(float)) || i == (int)(offsetof(Shape, shade) / sizeof(float)) ||
+                    i == (int)(offsetof(Shape, asym) / sizeof(float));
         float m = 0;
-        for (int k = 0; k < AFF_COUNT; k++) m += w[k] * ((const float *)&POSE[k])[i];
+        for (int k = 0; k < AFF_COUNT; k++) m += (brow ? gw[k] : w[k]) * ((const float *)&POSE[k])[i];
         sv[i] = nv[i] + (m - nv[i]) * L;
     }
 
@@ -401,7 +482,7 @@ void face_step(Face *f, double dt, const FaceInput *in, SphereFace *out)
     g.gx += 0.09f * w[AFF_FEAR] * glance / (fabsf(glance) + 0.15f);
     g.gy += 0.07f * w[AFF_SADNESS] + 0.02f * w[AFF_DISGUST];
     g.gx += -0.05f * w[AFF_DISGUST];
-    g.lid_top += 0.15f * w[AFF_SADNESS];
+    g.lid_top += 0.15f * gw[AFF_SADNESS];
     g.glow *= 1 + 0.2f * w[AFF_ANGER] * sinf(2 * (float)M_PI * 4 * t);
 
     /* Escuchando: se inclina y abre los ojos. Pensando: mira arriba. Hablando: la boca. */
@@ -475,7 +556,7 @@ void face_step(Face *f, double dt, const FaceInput *in, SphereFace *out)
     float ek = g.eye_k * sum.eye_k;
     out->eye_w = clampf(s.eye_w * ek, 0.5f, 1.8f);
     out->eye_h = clampf(s.eye_h * ek, 0.4f, 2.0f);
-    out->lid_top = clampf(s.lid_top + (g.lid_top + sum.lid_top) * L, 0, 0.8f);
+    out->lid_top = clampf(s.lid_top + g.lid_top * L + sum.lid_top, 0, 0.8f); /* el gesto ya trae el nivel */
     out->lid_bot = clampf(s.lid_bot, 0, 0.7f);
     out->lid_tilt = clampf(s.lid_tilt, -1.6f, 1.6f);
     out->happy = clampf(s.happy + sum.happy, 0, 1);
@@ -483,6 +564,7 @@ void face_step(Face *f, double dt, const FaceInput *in, SphereFace *out)
     out->round = clampf(s.round, 2, 4);
     out->eye_dy = clampf(s.eye_dy, -0.1f, 0.1f);
     out->shade = clampf(s.shade, 0, 0.9f);
+    out->blush = clampf(sum.blush, 0, 1);
     out->blink[0] = clampf(fmaxf(bl, fmaxf(g.blink[0], sum.blink[0])), 0, 1);
     out->blink[1] = clampf(fmaxf(bl, fmaxf(g.blink[1], sum.blink[1])), 0, 1);
     out->gaze_x = clampf(g.gx * L + sum.gx, -0.2f, 0.2f);

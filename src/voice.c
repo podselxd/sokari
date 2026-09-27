@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "affect.h"
 #include "agent.h"
 #include "app.h"
 #include "audio.h"
@@ -25,6 +26,7 @@
 #include "tts.h"
 #include "util.h"
 #include "vad.h"
+#include "vibe.h"
 #include "voice.h"
 #include "wakeword.h"
 
@@ -40,6 +42,7 @@
 typedef struct Chunk {
     int16_t *pcm;
     size_t n;
+    int line; /* qué frase es (para que la cara la acompañe al sonar) */
     struct Chunk *next;
 } Chunk;
 
@@ -47,7 +50,7 @@ static struct {
     HANDLE thread;
     CRITICAL_SECTION lock;
     CONDITION_VARIABLE cv;
-    char **sentences;
+    VibeLine *lines; /* lo que va a decir, frase por frase y con su emoción */
     int nsent, next_sent;
     bool job_active, cancel, synth_done, quit;
     Chunk *head, *tail;
@@ -124,16 +127,21 @@ static DWORD WINAPI speech_worker(LPVOID arg)
             continue;
         }
         if (S.job_active && !S.cancel && S.next_sent < S.nsent) {
-            char *sentence = xstrdup(S.sentences[S.next_sent++]);
+            int line = S.next_sent++;
+            char *sentence = xstrdup(S.lines[line].text);
+            Prosody pr = S.lines[line].prosody;
             LeaveCriticalSection(&S.lock);
             size_t n = 0;
             int16_t *pcm = tts_synthesize(sentence, &n);
             free(sentence);
+            /* el ritmo, el tono y el volumen de la emoción de esta frase */
+            if (pcm) pcm = prosody_apply(pcm, &n, TTS_RATE, &pr);
             EnterCriticalSection(&S.lock);
             if (pcm && !S.cancel) {
                 Chunk *c = xcalloc(1, sizeof *c);
                 c->pcm = pcm;
                 c->n = n;
+                c->line = line;
                 if (S.tail) S.tail->next = c;
                 else S.head = c;
                 S.tail = c;
@@ -170,42 +178,6 @@ int voice_list_voices(TtsVoice **out)
     S.list_result = NULL;
     S.list_ready = false;
     LeaveCriticalSection(&S.lock);
-    return n;
-}
-
-/* Parte la respuesta en oraciones para sintetizar la primera mientras se
-   escucha nada todavía; las muy cortas se juntan con la siguiente para que
-   la entonación no quede entrecortada. */
-static int split_sentences(const char *text, char ***out)
-{
-    int cap = 8, n = 0;
-    char **list = xmalloc(sizeof(char *) * (size_t)cap);
-    StrBuf cur;
-    sb_init(&cur);
-    for (const char *p = text;; p++) {
-        bool end = !*p;
-        if (!end) sb_append_char(&cur, *p);
-        bool boundary = end || *p == '\n' ||
-                        ((*p == '.' || *p == '!' || *p == '?' || *p == ';' || *p == ':') &&
-                         (p[1] == ' ' || p[1] == '\n' || !p[1]));
-        if (boundary && (end || cur.len >= 40)) {
-            char *t = str_trim(cur.data);
-            if (*t) {
-                if (n == cap) {
-                    cap *= 2;
-                    list = xrealloc(list, sizeof(char *) * (size_t)cap);
-                }
-                list[n++] = t;
-            } else {
-                free(t);
-            }
-            cur.len = 0;
-            cur.data[0] = 0;
-        }
-        if (end) break;
-    }
-    sb_free(&cur);
-    *out = list;
     return n;
 }
 
@@ -265,17 +237,23 @@ static StopKind speak(const char *text)
     }
     if (!g_sim_mode) sound_activation_stop();
     if (g_ww) ww_reset(g_ww);
-    log_msg("Sokari: %s", text);
-    app_subtitle(false, text);
+    char *shown = vibe_strip(text);
+    log_msg("Sokari: %s", shown);
+    app_subtitle(false, shown);
+    free(shown);
     app_set_state(JV_SPEAKING);
+    /* Frase por frase, cada una con su emoción: la de toda la respuesta (a la
+       que va el afecto ahora) afinada con lo que dice cada frase. */
     char *clean = tts_clean_text(text);
-    char **sentences;
-    int n = split_sentences(clean, &sentences);
+    float base[AFF_COUNT];
+    affect_target_weights(base);
+    VibeLine *lines;
+    int n = vibe_lines(clean, base, &lines);
     free(clean);
 
     EnterCriticalSection(&S.lock);
     free_chunks();
-    S.sentences = sentences;
+    S.lines = lines;
     S.nsent = n;
     S.next_sent = 0;
     S.cancel = false;
@@ -298,6 +276,8 @@ static StopKind speak(const char *text)
         if (!c) break;
         bool finished = true;
         if (!g_first_audio_at) g_first_audio_at = GetTickCount64();
+        /* la cara con la emoción y el gesto de esta frase, mientras dure */
+        if (c->line >= 0 && c->line < n) vibe_line_starts(&lines[c->line], (float)c->n / TTS_RATE);
         if (!g_sim_mode) finished = speaker_play(c->pcm, c->n, TTS_RATE, volume_to_gain(config_volume()), play_cb, &ctx);
         free(c->pcm);
         free(c);
@@ -312,9 +292,8 @@ static StopKind speak(const char *text)
     EnterCriticalSection(&S.lock);
     while (S.job_active && !S.synth_done && S.cancel) SleepConditionVariableCS(&S.cv, &S.lock, 100);
     free_chunks();
-    for (int i = 0; i < S.nsent; i++) free(S.sentences[i]);
-    free(S.sentences);
-    S.sentences = NULL;
+    vibe_lines_free(S.lines, S.nsent);
+    S.lines = NULL;
     S.nsent = S.next_sent = 0;
     S.job_active = false;
     LeaveCriticalSection(&S.lock);
@@ -464,6 +443,7 @@ static void think_job_release(ThinkJob *j)
     free(j->text);
     groq_error_free(&j->err);
     free(j->r.reply);
+    free(j->r.speech);
     CloseHandle(j->done);
     free(j);
 }
@@ -579,7 +559,7 @@ static bool handle_turn(const int16_t *audio, size_t n)
         app_status(st);
         free(st);
     }
-    StopKind cut = r.reply ? speak(r.reply) : STOP_NONE;
+    StopKind cut = r.reply ? speak(r.speech ? r.speech : r.reply) : STOP_NONE;
     /* Dónde se va el tiempo de cada respuesta, para saber qué arreglar. */
     uint64_t t_audio = g_first_audio_at ? g_first_audio_at : t_reply;
     if (ts.calls)
@@ -711,6 +691,7 @@ static char *mesh_handle(const char *cmd, const char *origen)
     TurnResult r = agent_process(g_mesh_conv, cmd);
     state_unlock();
     if (r.shutdown) app_request_quit();
+    free(r.speech); /* a la otra PC solo va el texto */
     return r.reply ? r.reply : xstrdup("Listo.");
 }
 

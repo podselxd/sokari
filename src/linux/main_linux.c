@@ -83,6 +83,7 @@ static int run_text(void)
         free(text);
         if (r.reply && *r.reply) printf("sokari> %s\n", r.reply);
         free(r.reply);
+        free(r.speech);
         if (r.shutdown || app_quit_requested()) break;
         if (!r.keep_going) {
             /* Como cuando te despides en voz: la siguiente vez empieza de nuevo. */

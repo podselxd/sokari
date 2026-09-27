@@ -560,8 +560,8 @@ static void test_nombre(void)
     conv_destroy(c);
 }
 
-/* La cara (beta): a la IA se le pide la etiqueta de afecto solo con una cara
-   puesta, y la etiqueta nunca llega a lo que se dice (voz y subtítulos) ni al
+/* La etiqueta de afecto: se le pide a la IA siempre (la cara la muestra y la
+   voz la dice así), y nunca llega a lo que se dice (voz y subtítulos) ni al
    historial. */
 static void test_afecto(void)
 {
@@ -573,13 +573,14 @@ static void test_afecto(void)
     config_apply(&cfg);
     script("Es lo que queda de una estrella como el Sol.", NULL, NULL);
     free(say(c, "¿qué es una enana blanca?"));
-    check(!strstr(g_last_sent, "[afecto:"), "con el halo de puntos no se le pide la etiqueta (ni un token de más)");
+    check(strstr(g_last_sent, "[afecto: alegría 0.6]") != NULL,
+          "aun con el halo de puntos se le pide la etiqueta (la voz también la usa)");
 
     cfg.sphere_style = 2; /* cara: solo ojos */
     config_apply(&cfg);
     script("¡Claro! Es una estrella muerta muy densa. [afecto: alegría 0.7]", NULL, NULL);
     char *r = say(c, "¿y una estrella de neutrones?");
-    check(strstr(g_last_sent, "[afecto: alegría 0.6]") != NULL, "con una cara puesta sí se le pide");
+    check(strstr(g_last_sent, "[afecto: alegría 0.6]") != NULL, "con una cara puesta también se le pide");
     check(r && !strcmp(r, "¡Claro! Es una estrella muerta muy densa."), "la etiqueta no se dice ni sale en subtítulos");
     free(r);
     float v, a;

@@ -205,6 +205,8 @@ static void face_band(SphereRenderer *r, int y0, int y1);
 static void face_glow(SphereRenderer *r);
 static void face_uv(const FaceGeom *g, float px, float py, float *u, float *v);
 static float face_shade(const FaceGeom *g, const SphereFace *p, float u, float v);
+static float blush_cov(const FaceGeom *g, const SphereFace *p, float u, float v);
+static const float PINK[3] = {255, 105, 150}; /* el sonrojo */
 
 static void raster_band(SphereRenderer *r, int index)
 {
@@ -787,6 +789,11 @@ void sphere_render(SphereRenderer *r, double t, double angle, double voice_t, co
                     for (int k = 0; k < 3; k++) d->c[k] += (r->fg.tint[k] * 1.3f - d->c[k]) * m;
                     d->rad *= 1.0f + 0.6f * m;
                 }
+                float bl = blush_cov(&r->fg, &r->face, u, v);
+                if (bl > 0.0f) {
+                    for (int k = 0; k < 3; k++) d->c[k] += (PINK[k] - d->c[k]) * bl;
+                    d->rad *= 1.0f + 0.3f * bl;
+                }
             }
             if (moving) {
                 Dot *d = &r->dots[i];
@@ -978,6 +985,17 @@ static float mouth_cov(const FaceGeom *g, const SphereFace *p, float u, float v)
     return m;
 }
 
+/* Las chapitas del sonrojo: dos óvalos suaves abajo y afuera de los ojos. */
+static float blush_cov(const FaceGeom *g, const SphereFace *p, float u, float v)
+{
+    float b = clamp01(p->blush);
+    if (b <= 0.001f) return 0.0f;
+    float cx = g->ex + 0.04f, cy = g->ey + g->ry * 1.2f + p->eye_dy;
+    float rx = fmaxf(g->rx * 1.05f, 0.13f), ry = fmaxf(g->ry * 0.42f, 0.07f);
+    float du = (fabsf(u) - cx) / rx, dv = (v - cy) / ry;
+    return b * (1.0f - smoothstep(0.35f, 1.0f, sqrtf(du * du + dv * dv))) * g->alpha;
+}
+
 /* Toda la cara en (u, v): los ojos y, si hay, la boca. shaded: con la zona de
    la sombra ya apagada (para el resplandor; al núcleo se la pone compose). */
 static float face_cov(const FaceGeom *g, const SphereFace *p, float u, float v, bool shaded)
@@ -1045,6 +1063,14 @@ static float symbol_cov(const FaceGeom *g, const SphereSymbol *s, float u, float
         }
         return cov_of(best, aa);
     }
+    case SPHERE_SYM_EXCLAIM: {
+        /* «!»: un palito redondo arriba que se afila hacia abajo, y el punto */
+        float k = 0.6f * sz, w0 = 0.075f * k, w1 = 0.045f * k, top = -0.36f * k, bot = 0.1f * k;
+        float w = w0 + (w1 - w0) * clamp01((dv - top) / (bot - top));
+        float bar = dv < top ? sqrtf(du * du + (dv - top) * (dv - top)) - w0 : fmaxf(fabsf(du) - w, dv - bot);
+        float dot = sqrtf(du * du + (dv - 0.24f * k) * (dv - 0.24f * k)) - 1.15f * w0;
+        return cov_of(fminf(bar, dot), aa);
+    }
     case SPHERE_SYM_DOTS: {
         float m = 0.0f;
         for (int j = 0; j < 3; j++) {
@@ -1061,16 +1087,17 @@ static float symbol_cov(const FaceGeom *g, const SphereSymbol *s, float u, float
 
 static const float *symbol_color(SphereSymbolKind k)
 {
-    static const float C[6][3] = {{140, 205, 255}, {185, 228, 255}, {255, 246, 170},
-                                  {245, 240, 255}, {255, 80, 60},   {240, 240, 255}};
-    return C[(int)k >= 0 && (int)k < 6 ? (int)k : 5];
+    static const float C[7][3] = {{140, 205, 255}, {185, 228, 255}, {255, 246, 170}, {245, 240, 255},
+                                  {255, 80, 60},   {240, 240, 255}, {255, 236, 140}};
+    return C[(int)k >= 0 && (int)k < 7 ? (int)k : 5];
 }
 
 /* Qué tan grande es la zona de un símbolo (en radios, desde su centro). */
 static float symbol_reach(const SphereSymbol *s)
 {
     switch (s->kind) {
-    case SPHERE_SYM_QUESTION: return 0.45f * s->size + 0.05f;
+    case SPHERE_SYM_QUESTION:
+    case SPHERE_SYM_EXCLAIM: return 0.45f * s->size + 0.05f;
     case SPHERE_SYM_DOTS: return 0.45f;
     case SPHERE_SYM_ANGER: return 0.32f * s->size + 0.05f;
     case SPHERE_SYM_SPARK: return 0.2f * s->size + 0.05f;
@@ -1092,9 +1119,12 @@ static void face_band(SphereRenderer *r, int y0, int y1)
             for (int x = bx0; x <= bx1; x++) {
                 float u, v;
                 face_uv(g, (float)x + 0.5f, (float)y + 0.5f, &u, &v);
+                float *px = row + (size_t)x * 3;
+                float b = blush_cov(g, p, u, v);
+                if (b > 0.0f)
+                    for (int k = 0; k < 3; k++) px[k] = px[k] * (1.0f - 0.5f * b) + b * PINK[k] * 0.85f;
                 float m = face_cov(g, p, u, v, false);
                 if (m <= 0.0f) continue;
-                float *px = row + (size_t)x * 3;
                 for (int k = 0; k < 3; k++) px[k] = px[k] * (1.0f - 0.88f * m) + m * g->tint[k];
             }
         }
@@ -1134,9 +1164,12 @@ static void face_glow(SphereRenderer *r)
             for (int x = bx0 / f; x <= bx1 / f && x < h; x++) {
                 float u, v;
                 face_uv(g, ((float)x + 0.5f) * f, ((float)y + 0.5f) * f, &u, &v);
+                float *d = r->glow_a + ((size_t)y * h + x) * 3;
+                float b = blush_cov(g, p, u, v);
+                if (b > 0.0f)
+                    for (int k = 0; k < 3; k++) d[k] += b * PINK[k] * 0.9f;
                 float m = face_cov(g, p, u, v, true);
                 if (m <= 0.0f) continue;
-                float *d = r->glow_a + ((size_t)y * h + x) * 3;
                 for (int k = 0; k < 3; k++) d[k] += m * g->color[k] * gain * 1.6f;
             }
     }

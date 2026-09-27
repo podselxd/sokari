@@ -125,6 +125,11 @@ static void mix_weights(float v, float a, float out[AFF_COUNT])
     for (int k = 0; k < AFF_COUNT; k++) out[k] = sum > 0 ? out[k] / sum : k == AFF_NEUTRAL;
 }
 
+void affect_weights_at(float valence, float arousal, float weights[AFF_COUNT])
+{
+    mix_weights(clampf(valence, -1, 1), clampf(arousal, -1, 1), weights);
+}
+
 static float intensity_of(const AffectEngine *e)
 {
     /* §10: la distancia al centro, pero no sola: lo importante o sorpresivo se nota más. */
@@ -468,21 +473,21 @@ void affect_engine_stimulus(AffectEngine *e, double t, const AffectStimulus *s)
     apply_target(e, sv, sa, w, fmaxf(imp, fmaxf(nov, sur)), s->cause);
 }
 
-void affect_engine_emotions(AffectEngine *e, double t, const float amount[AFF_COUNT], const char *cause)
+/* La etiqueta evalúa toda la situación: el punto al que lleva. Hasta una
+   emoción baja queda a medio camino de su referencia (0.2 → 48 %, 0.5 → 68 %,
+   1 → 100 %) para que se reconozca. Con dos, manda la más fuerte y la otra solo
+   la jala un poco: promediar puntos lejanos (tristeza + temor) caería en una
+   tercera emoción (desagrado). Devuelve la intensidad de la más fuerte (0: nada). */
+static float point_of(const float amount[AFF_COUNT], float *v, float *a)
 {
-    affect_engine_advance(e, t);
-    /* La etiqueta evalúa toda la situación: el objetivo se vuelve casi ese
-       punto. Hasta una emoción baja queda a medio camino de su referencia
-       (0.2 → 48 %, 0.5 → 68 %, 1 → 100 %) para que se reconozca. Con dos, manda
-       la más fuerte y la otra solo la jala un poco: promediar puntos lejanos
-       (tristeza + temor) caería en una tercera emoción (desagrado). */
     int k1 = -1, k2 = -1;
     for (int k = 0; k < AFF_COUNT; k++) {
         if (!(clampf(amount[k], 0, 1) > 0)) continue;
         if (k1 < 0 || amount[k] > amount[k1]) k2 = k1, k1 = k;
         else if (k2 < 0 || amount[k] > amount[k2]) k2 = k;
     }
-    if (k1 < 0) return;
+    *v = *a = 0;
+    if (k1 < 0) return 0;
     float i1 = clampf(amount[k1], 0, 1), reach = 0.35f + 0.65f * i1;
     float sv = REF[k1][0] * reach, sa = REF[k1][1] * reach;
     if (k2 >= 0) {
@@ -490,9 +495,34 @@ void affect_engine_emotions(AffectEngine *e, double t, const float amount[AFF_CO
         sv += (REF[k2][0] * r2 - sv) * pull;
         sa += (REF[k2][1] * r2 - sa) * pull;
     }
+    *v = clampf(sv, -1, 1);
+    *a = clampf(sa, -1, 1);
+    return i1;
+}
+
+void affect_point(const float amount[AFF_COUNT], float *valence, float *arousal)
+{
+    float v, a;
+    point_of(amount, &v, &a);
+    if (valence) *valence = v;
+    if (arousal) *arousal = a;
+}
+
+void affect_engine_emotions(AffectEngine *e, double t, const float amount[AFF_COUNT], const char *cause)
+{
+    affect_engine_advance(e, t);
+    float sv, sa, i1 = point_of(amount, &sv, &sa);
+    if (!(i1 > 0)) return;
     e->reasons |= AFF_R_AI;
-    apply_target(e, clampf(sv, -1, 1), clampf(sa, -1, 1), e->temper.sensitivity * (0.85f + 0.1f * i1),
-                 0.5f + 0.5f * i1, cause);
+    apply_target(e, sv, sa, e->temper.sensitivity * (0.85f + 0.1f * i1), 0.5f + 0.5f * i1, cause);
+}
+
+void affect_engine_sustain(AffectEngine *e, double t, float seconds)
+{
+    affect_engine_advance(e, t);
+    if (!(seconds > 0)) return;
+    if (seconds > 60) seconds = 60;
+    if (e->t + seconds > e->hold_until) e->hold_until = e->t + seconds;
 }
 
 void affect_engine_emotion(AffectEngine *e, double t, AffectKind k, float intensity, const char *cause)
@@ -764,6 +794,22 @@ void affect_tool(const char *name, bool ok)
     ReleaseSRWLockExclusive(&g_lock);
 }
 
+void affect_sustain(float seconds)
+{
+    AcquireSRWLockExclusive(&g_lock);
+    AffectEngine *e = engine_locked();
+    affect_engine_sustain(e, e->t, seconds);
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
+void affect_cue(AffectCue cue)
+{
+    AcquireSRWLockExclusive(&g_lock);
+    engine_locked();
+    if (cue != AFF_CUE_NONE) cue_locked(cue);
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
 AffectCue affect_last_cue(unsigned *seq)
 {
     AcquireSRWLockShared(&g_lock);
@@ -785,6 +831,14 @@ void affect_target(float *valence, float *arousal)
 {
     AcquireSRWLockExclusive(&g_lock);
     affect_engine_target(engine_locked(), valence, arousal);
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
+void affect_target_weights(float weights[AFF_COUNT])
+{
+    AcquireSRWLockExclusive(&g_lock);
+    AffectEngine *e = engine_locked();
+    mix_weights(e->tv, e->ta, weights);
     ReleaseSRWLockExclusive(&g_lock);
 }
 
@@ -1012,9 +1066,10 @@ char *affect_take_tags(const char *reply, float amount[AFF_COUNT], int *found)
 
 const char *affect_prompt(void)
 {
-    return "Tu cara en la pantalla expresa emociones. Al final de CADA respuesta agrega una etiqueta con la "
-           "emoción que va con lo que dices y con cómo salió lo que te pidieron, por ejemplo [afecto: alegría 0.6]. "
-           "Usa alegría, tristeza, furia, desagrado, temor o neutral, con intensidad de 0 a 1 (puedes poner dos: "
-           "[afecto: alegría 0.5, temor 0.2]). Nadie la oye ni la ve: no la menciones. Si nada destaca, "
-           "[afecto: neutral 0.5].";
+    return "Tu cara y tu voz muestran emociones. Al final de CADA respuesta pon la emoción de lo que dices, por "
+           "ejemplo [afecto: alegría 0.6]: alegría, tristeza, furia, desagrado, temor o neutral, de 0 a 1 (o dos: "
+           "[afecto: alegría 0.5, temor 0.2]). Sale del tono de tu respuesta: logro, buena noticia o halago → "
+           "alegría; disculpa, fallo o insulto → tristeza; riesgo o advertencia → temor; algo asqueroso → "
+           "desagrado; injusticia → furia. Neutral solo para datos secos (la hora, una cuenta). Nadie ve la "
+           "etiqueta: no la menciones.";
 }

@@ -20,6 +20,7 @@
 #include "resources.h"
 #include "tools.h"
 #include "util.h"
+#include "vibe.h"
 
 #define MAX_HISTORY_MESSAGES 12
 #define MEMORY_WINDOW_SECONDS (12 * 3600)
@@ -37,6 +38,7 @@ struct Conversation {
     char *turn_skill;      /* instrucciones de una skill de IA tuya, solo para este pedido */
     char *turn_skill_name;
     volatile LONG *cancel; /* quien habla la interrumpió: ya no hace lo que faltaba (voice.c) */
+    bool turn_tagged;      /* en este turno la IA ya puso su etiqueta de afecto */
 };
 
 void conv_set_cancel(Conversation *c, volatile LONG *flag)
@@ -932,8 +934,9 @@ static cJSON *build_request(Conversation *c)
     int n = cJSON_GetArraySize(c->history);
     cJSON_AddItemToArray(msgs, cJSON_Duplicate(cJSON_GetArrayItem(c->history, 0), 1));
     cJSON_AddItemToArray(msgs, context_message(c));
-    if (config_face()) {
-        /* Con la cara puesta: que diga con qué emoción contesta (se quita antes de hablar). */
+    {
+        /* Que diga con qué emoción contesta: la cara la muestra y la voz la
+           dice así (se quita antes de hablar). Va siempre, con o sin cara. */
         cJSON *m = cJSON_CreateObject();
         cJSON_AddStringToObject(m, "role", "system");
         cJSON_AddStringToObject(m, "content", affect_prompt());
@@ -971,7 +974,20 @@ static char *error_reply(const GroqError *e)
 
 static TurnResult process_turn(Conversation *c, const char *text);
 
+static TurnResult process(Conversation *c, const char *heard);
+
 TurnResult agent_process(Conversation *c, const char *heard)
+{
+    c->turn_tagged = false;
+    TurnResult r = process(c, heard);
+    /* La vibra (0 tokens): un insulto la agüita y un halago la sonroja; sin
+       etiqueta de la IA, la emoción sale de lo que contesta. Si la respuesta
+       trae marcas, la skill ya dijo cómo lo siente. */
+    if (r.reply) vibe_after_turn(heard, r.speech ? NULL : r.reply, c->turn_tagged);
+    return r;
+}
+
+static TurnResult process(Conversation *c, const char *heard)
 {
     if (contains_stop_word(heard)) {
         TurnResult r = {0};
@@ -1103,15 +1119,24 @@ static TurnResult process_turn(Conversation *c, const char *text)
     bool skill_end = false;
     char *said = other ? NULL : skills_try(text, &skill, &skill_end);
     if (said) {
+        /* Con marcas de emoción («[gesto: suspiro]»), la skill ya dijo cómo lo
+           siente: la voz las usa y todo lo demás se queda con el texto limpio. */
+        char *speech = NULL;
+        if (vibe_has_marks(said)) {
+            speech = said;
+            said = vibe_strip(speech);
+        }
         log_msg("Skill local «%s», sin IA: «%s» -> %s", skill->name, text, said);
         bool chat = skill->id && !strcmp(skill->id, "platica");
-        affect_event(!chat ? AFF_EV_TASK_DONE : str_contains_ci(text, "chiste") ? AFF_EV_JOKE : AFF_EV_GREETING);
+        if (!speech)
+            affect_event(!chat ? AFF_EV_TASK_DONE : str_contains_ci(text, "chiste") ? AFF_EV_JOKE : AFF_EV_GREETING);
         add_message(c->history, "user", text);
         memory_persist("user", text);
         add_message(c->history, "assistant", said);
         memory_persist("assistant", said);
         trim_history(c);
         r.reply = said;
+        r.speech = speech;
         r.keep_going = !skill_end;
         return r;
     }
@@ -1222,7 +1247,10 @@ static TurnResult process_turn(Conversation *c, const char *text)
                 reply = NULL;
                 continue;
             }
-            if (ntag) affect_emotions(tag, "la IA");
+            if (ntag) {
+                affect_emotions(tag, "la IA");
+                c->turn_tagged = true;
+            }
             break;
         }
         cJSON_AddItemToArray(c->history, msg);
@@ -1279,6 +1307,8 @@ static TurnResult process_turn(Conversation *c, const char *text)
                 stopped = true;
                 result = xstrdup("No se hizo: quien habla interrumpió antes.");
             } else {
+                /* buscando en internet, mira de lado */
+                if (!strcmp(name, "web_search")) affect_cue(AFF_CUE_SEARCH);
                 result = run_tool(name, args);
                 affect_tool(name, tool_succeeded(result));
                 if (!strcmp(name, "borrar_memoria_reciente")) forget_after = true;
@@ -1302,7 +1332,10 @@ static TurnResult process_turn(Conversation *c, const char *text)
             char *raw = str_trim(said && *said ? said : "Hasta luego.");
             reply = affect_take_tags(raw, tag, &ntag);
             free(raw);
-            if (ntag) affect_emotions(tag, "la IA");
+            if (ntag) {
+                affect_emotions(tag, "la IA");
+                c->turn_tagged = true;
+            }
             if (!*reply) {
                 free(reply);
                 reply = xstrdup("Hasta luego.");
