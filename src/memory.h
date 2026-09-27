@@ -36,7 +36,15 @@ char *hash_password(const char *password);
 typedef struct {
     char *profile;
     char *texto;
+    bool alarm; /* una alarma: suena antes de decirse */
 } DueReminder;
+
+/* Un recordatorio (o una alarma) para ese perfil a esa hora (epoch). */
+bool reminders_add(const char *profile, const char *texto, double when, bool alarm);
+/* Las alarmas que no han sonado de ese perfil: cuántas quitó / sus horas
+   (heap, en orden). */
+int reminders_cancel_alarms(const char *profile);
+int reminders_alarm_times(const char *profile, double **out);
 
 int reminders_take_due(DueReminder **out);
 char *reminders_take_pending_for(const char *profile);

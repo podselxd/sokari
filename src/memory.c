@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "config.h"
 #include "log.h"
@@ -82,7 +83,7 @@ bool json_save(const wchar_t *path, const cJSON *obj)
 
 const char *current_speaker(void)
 {
-    return g_speaker;
+    return g_speaker ? g_speaker : DEFAULT_PROFILE;
 }
 
 void set_current_speaker(const char *key)
@@ -266,6 +267,8 @@ int reminders_take_due(DueReminder **out)
             }
             list[n].profile = xstrdup(items->string);
             list[n].texto = xstrdup(texto->valuestring);
+            cJSON *tipo = cJSON_GetObjectItem(it, "tipo");
+            list[n].alarm = cJSON_IsString(tipo) && !strcmp(tipo->valuestring, "alarma");
             n++;
             cJSON_DeleteItemFromObject(it, "avisado");
             cJSON_AddTrueToObject(it, "avisado");
@@ -273,6 +276,87 @@ int reminders_take_due(DueReminder **out)
         }
     }
     if (changed) json_save(rf, data);
+    cJSON_Delete(data);
+    free(rf);
+    *out = list;
+    return n;
+}
+
+bool reminders_add(const char *profile, const char *texto, double when, bool alarm)
+{
+    time_t t = (time_t)when;
+    struct tm tmv;
+    if (localtime_s(&tmv, &t) != 0) return false;
+    char iso[32];
+    strftime(iso, sizeof iso, "%Y-%m-%dT%H:%M:%S", &tmv);
+    wchar_t *rf = memory_file(L"recordatorios.json");
+    cJSON *data = json_load_object(rf);
+    cJSON *items = cJSON_GetObjectItem(data, profile);
+    if (!cJSON_IsArray(items)) {
+        cJSON_DeleteItemFromObject(data, profile);
+        items = cJSON_AddArrayToObject(data, profile);
+    }
+    cJSON *it = cJSON_CreateObject();
+    cJSON_AddStringToObject(it, "texto", texto);
+    cJSON_AddStringToObject(it, "cuando", "");
+    cJSON_AddStringToObject(it, "cuando_iso", iso);
+    cJSON_AddNumberToObject(it, "creado", now_epoch());
+    cJSON_AddFalseToObject(it, "avisado");
+    if (alarm) cJSON_AddStringToObject(it, "tipo", "alarma");
+    cJSON_AddItemToArray(items, it);
+    bool ok = json_save(rf, data);
+    cJSON_Delete(data);
+    free(rf);
+    return ok;
+}
+
+static bool pending_alarm(const cJSON *it, double *when)
+{
+    const cJSON *tipo = cJSON_GetObjectItem(it, "tipo"), *due = cJSON_GetObjectItem(it, "cuando_iso");
+    return cJSON_IsString(tipo) && !strcmp(tipo->valuestring, "alarma") &&
+           !cJSON_IsTrue(cJSON_GetObjectItem(it, "avisado")) && cJSON_IsString(due) &&
+           parse_iso_local(due->valuestring, when);
+}
+
+int reminders_cancel_alarms(const char *profile)
+{
+    wchar_t *rf = memory_file(L"recordatorios.json");
+    cJSON *data = json_load_object(rf);
+    cJSON *items = cJSON_GetObjectItem(data, profile);
+    int n = 0;
+    for (int i = cJSON_GetArraySize(items) - 1; i >= 0; i--) {
+        double when;
+        if (pending_alarm(cJSON_GetArrayItem(items, i), &when)) {
+            cJSON_DeleteItemFromArray(items, i);
+            n++;
+        }
+    }
+    if (n) json_save(rf, data);
+    cJSON_Delete(data);
+    free(rf);
+    return n;
+}
+
+static int cmp_double(const void *a, const void *b)
+{
+    double x = *(const double *)a, y = *(const double *)b;
+    return x < y ? -1 : x > y;
+}
+
+int reminders_alarm_times(const char *profile, double **out)
+{
+    wchar_t *rf = memory_file(L"recordatorios.json");
+    cJSON *data = json_load_object(rf);
+    cJSON *items = cJSON_GetObjectItem(data, profile);
+    int n = 0;
+    double *list = xcalloc((size_t)cJSON_GetArraySize(items) + 1, sizeof *list);
+    const cJSON *it;
+    cJSON_ArrayForEach(it, items)
+    {
+        double when;
+        if (pending_alarm(it, &when)) list[n++] = when;
+    }
+    qsort(list, (size_t)n, sizeof *list, cmp_double);
     cJSON_Delete(data);
     free(rf);
     *out = list;

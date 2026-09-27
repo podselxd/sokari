@@ -8,6 +8,7 @@
 #include "config.h"
 #include "groq.h"
 #include "intents.h"
+#include "skills.h"
 #include "keys.h"
 #include "log.h"
 #include "memory.h"
@@ -1058,6 +1059,22 @@ static TurnResult process_turn(Conversation *c, const char *text)
             return r;
         }
         free(done);
+    }
+    /* La hora, temporizadores, alarmas, cuentas, el clima, tus notas, cómo va
+       la PC, saludos: las skills locales, también sin IA (0 tokens). */
+    const SkillInfo *skill = NULL;
+    bool skill_end = false;
+    char *said = other ? NULL : skills_try(text, &skill, &skill_end);
+    if (said) {
+        log_msg("Skill local «%s», sin IA: «%s» -> %s", skill->name, text, said);
+        add_message(c->history, "user", text);
+        memory_persist("user", text);
+        add_message(c->history, "assistant", said);
+        memory_persist("assistant", said);
+        trim_history(c);
+        r.reply = said;
+        r.keep_going = !skill_end;
+        return r;
     }
 
     int turn_start = cJSON_GetArraySize(c->history);

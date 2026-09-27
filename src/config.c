@@ -51,6 +51,8 @@ static void defaults(AppConfig *c)
     c->openrouter_key = xstrdup("");
     c->glm_key = xstrdup("");
     c->ai_order = xstrdup(DEFAULT_AI_ORDER);
+    c->skills_off = xstrdup("");
+    c->city = xstrdup("");
     c->display_mode = DISPLAY_FULLSCREEN;
     c->resolution = 0;
     c->volume = 100;
@@ -82,6 +84,8 @@ static void apply_kv(AppConfig *c, const char *key, const char *value)
     else if (!strcmp(key, "OPENROUTER_API_KEY")) set_str(&c->openrouter_key, value);
     else if (!strcmp(key, "GLM_API_KEY")) set_str(&c->glm_key, value);
     else if (!strcmp(key, "SOKARI_AI_ORDER")) set_str(&c->ai_order, *value ? value : DEFAULT_AI_ORDER);
+    else if (!strcmp(key, "SOKARI_SKILLS_OFF")) set_str(&c->skills_off, value);
+    else if (!strcmp(key, "SOKARI_CITY")) set_str(&c->city, value);
     else if (!strcmp(key, "SOKARI_DISPLAY_MODE")) {
         for (int i = 0; i < DISPLAY_MODE_COUNT; i++)
             if (!strcmp(value, DISPLAY_KEYS[i])) c->display_mode = i;
@@ -172,6 +176,8 @@ static bool save_locked(void)
     put_kv(&sb, "OPENROUTER_API_KEY", g_cfg.openrouter_key);
     put_kv(&sb, "GLM_API_KEY", g_cfg.glm_key);
     put_kv(&sb, "SOKARI_AI_ORDER", g_cfg.ai_order);
+    put_kv(&sb, "SOKARI_SKILLS_OFF", g_cfg.skills_off);
+    put_kv(&sb, "SOKARI_CITY", g_cfg.city);
     put_kv(&sb, "SOKARI_DISPLAY_MODE", display_mode_key(g_cfg.display_mode));
     sb_appendf(&sb, "SOKARI_RESOLUTION=%d\n", g_cfg.resolution);
     sb_appendf(&sb, "SOKARI_VOLUME=%d\n", g_cfg.volume);
@@ -218,6 +224,8 @@ static void copy_cfg(AppConfig *dst, const AppConfig *src)
     dst->openrouter_key = xstrdup(src->openrouter_key);
     dst->glm_key = xstrdup(src->glm_key);
     dst->ai_order = xstrdup(src->ai_order);
+    dst->skills_off = xstrdup(src->skills_off);
+    dst->city = xstrdup(src->city);
 }
 
 void config_free(AppConfig *c)
@@ -236,6 +244,8 @@ void config_free(AppConfig *c)
         free(keys[i]);
     }
     free(c->ai_order);
+    free(c->skills_off);
+    free(c->city);
     memset(c, 0, sizeof *c);
 }
 
@@ -302,6 +312,36 @@ bool config_show_only_talking(void)
     bool v = g_cfg.show_only_talking;
     ReleaseSRWLockShared(&g_lock);
     return v;
+}
+
+bool config_skill_enabled(const char *id)
+{
+    AcquireSRWLockShared(&g_lock);
+    char *pat = str_printf(",%s,", id), *list = str_printf(",%s,", g_cfg.skills_off ? g_cfg.skills_off : "");
+    ReleaseSRWLockShared(&g_lock);
+    for (char *p = list; *p; p++)
+        if (*p == ' ' || *p == ';') *p = ',';
+    bool on = !strstr(list, pat);
+    free(pat);
+    free(list);
+    return on;
+}
+
+char *config_city(void)
+{
+    AcquireSRWLockShared(&g_lock);
+    char *r = xstrdup(g_cfg.city ? g_cfg.city : "");
+    ReleaseSRWLockShared(&g_lock);
+    return r;
+}
+
+void config_set_city(const char *city)
+{
+    AcquireSRWLockExclusive(&g_lock);
+    free(g_cfg.city);
+    g_cfg.city = xstrdup(city ? city : "");
+    save_locked();
+    ReleaseSRWLockExclusive(&g_lock);
 }
 
 bool config_full_access(void)

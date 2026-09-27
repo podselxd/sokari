@@ -41,9 +41,9 @@ static HWND open_devices(void)
     settings_open(GetModuleHandleW(NULL), false, NULL);
     HWND h = settings_window();
     pump(500);
-    /* Barra lateral: Inicio, Cuenta, Pantalla, Voz y audio, General, Dispositivos. */
+    /* Barra lateral: Inicio, Cuenta, Pantalla, Voz y audio, General, Skills, Dispositivos. */
     UINT dpi = GetDpiForWindow(h);
-    int x = MulDiv(60, (int)dpi, 96), y = MulDiv(110 + 5 * 46 + 20, (int)dpi, 96);
+    int x = MulDiv(60, (int)dpi, 96), y = MulDiv(110 + 6 * 46 + 20, (int)dpi, 96);
     SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
     SendMessageW(h, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
     pump(300);

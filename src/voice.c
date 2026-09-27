@@ -20,6 +20,7 @@
 #include "mesh.h"
 #include "resource.h"
 #include "resources.h"
+#include "skills.h"
 #include "sounds.h"
 #include "tts.h"
 #include "util.h"
@@ -33,6 +34,8 @@
    ya pudo empezar. Si se cuela el final del nombre, no pasa nada. */
 #define WAKE_HISTORY_FRAMES 5
 #define REMINDER_CHECK_FRAMES (20 * MIC_RATE / MIC_FRAME)
+/* Los temporizadores se revisan cada medio segundo (están en memoria). */
+#define TIMER_CHECK_FRAMES (MIC_RATE / 2 / MIC_FRAME)
 
 typedef struct Chunk {
     int16_t *pcm;
@@ -464,6 +467,13 @@ static bool handle_turn(const int16_t *audio, size_t n)
     uint64_t t_reply = GetTickCount64();
     TurnStats ts = turn_stats_get();
     g_first_audio_at = 0;
+    /* En la ventana: si esta respuesta gastó IA o salió de tu PC. */
+    if (r.reply) {
+        char *st = ts.calls ? str_printf("Contestó la IA (%d tokens)", ts.tokens_in + ts.tokens_out)
+                            : xstrdup("Contesté sin IA: 0 tokens");
+        app_status(st);
+        free(st);
+    }
     if (r.reply) speak(r.reply);
     free(r.reply);
     /* Dónde se va el tiempo de cada respuesta, para saber qué arreglar. */
@@ -536,15 +546,44 @@ static void announce_due_reminders(void)
     state_unlock();
     for (int i = 0; i < n; i++) {
         char *who = strcmp(due[i].profile, DEFAULT_PROFILE) ? profile_display_name(due[i].profile) : NULL;
-        char *msg = who ? str_printf("%s, te quería recordar: %s", who, due[i].texto)
-                        : str_printf("Te quería recordar: %s", due[i].texto);
-        app_notify("Recordatorio", due[i].texto);
+        char *msg;
+        if (due[i].alarm) {
+            /* Una alarma: suena antes de decirse. */
+            msg = who ? str_printf("%s: %s", who, due[i].texto) : xstrdup(due[i].texto);
+            for (int k = 0; k < 3; k++) {
+                sound_chime();
+                Sleep(700);
+            }
+        } else {
+            msg = who ? str_printf("%s, te quería recordar: %s", who, due[i].texto)
+                      : str_printf("Te quería recordar: %s", due[i].texto);
+        }
+        app_notify(due[i].alarm ? "Alarma" : "Recordatorio", due[i].texto);
         speak(msg);
         free(msg);
         free(who);
     }
     due_reminders_free(due, n);
     if (n) app_set_state(JV_IDLE);
+}
+
+static void announce_due_timers(void)
+{
+    int n;
+    char **due = skills_due_timers(&n);
+    if (!n) return;
+    ResetEvent(g_skip);
+    for (int i = 0; i < n; i++) {
+        for (int k = 0; k < 2; k++) {
+            sound_chime();
+            Sleep(600);
+        }
+        app_notify("Temporizador", due[i]);
+        speak(due[i]);
+        free(due[i]);
+    }
+    free(due);
+    app_set_state(JV_IDLE);
 }
 
 static char *mesh_handle(const char *cmd, const char *origen)
@@ -687,6 +726,7 @@ static DWORD WINAPI voice_main(LPVOID arg)
             memcpy(hist[nhist++], f, sizeof f);
         }
         if (++frame_count % REMINDER_CHECK_FRAMES == 0) announce_due_reminders();
+        if (frame_count % TIMER_CHECK_FRAMES == 0) announce_due_timers();
         if (config_mic_muted()) {
             if (triggered) app_notify("Sokari", "El micrófono está silenciado (actívalo desde el ícono de la bandeja).");
             continue;
