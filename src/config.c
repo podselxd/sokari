@@ -110,6 +110,8 @@ static void defaults(AppConfig *c)
     c->wake_sensitivity = 67;
     c->sphere_style = 0;
     c->appear_anim = 0;
+    c->face_level = 1;
+    c->face_symbols = true;
     c->orb_x = c->orb_y = -1;
     c->win_x = c->win_y = c->win_w = c->win_h = -1;
     c->subtitles = true;
@@ -159,6 +161,10 @@ static void apply_kv(AppConfig *c, const char *key, const char *value)
         c->sphere_style = sphere_style_from_key(value);
     } else if (!strcmp(key, "SOKARI_ANIMATION")) {
         c->appear_anim = appear_anim_from_key(value);
+    } else if (!strcmp(key, "SOKARI_FACE_LEVEL")) {
+        c->face_level = !strcmp(value, "poco") ? 0 : !strcmp(value, "mucho") ? 2 : 1;
+    } else if (!strcmp(key, "SOKARI_FACE_SYMBOLS")) {
+        c->face_symbols = parse_bool(value);
     } else if (!strcmp(key, "SOKARI_ORB_POS")) {
         if (sscanf(value, "%d,%d", &c->orb_x, &c->orb_y) != 2) c->orb_x = c->orb_y = -1;
     } else if (!strcmp(key, "SOKARI_WINDOW")) {
@@ -238,6 +244,8 @@ static bool save_locked(void)
     sb_appendf(&sb, "SOKARI_WAKE_SENSITIVITY=%d\n", g_cfg.wake_sensitivity);
     sb_appendf(&sb, "SOKARI_SPHERE_STYLE=%s\n", sphere_style_key(g_cfg.sphere_style));
     sb_appendf(&sb, "SOKARI_ANIMATION=%s\n", appear_anim_key(g_cfg.appear_anim));
+    sb_appendf(&sb, "SOKARI_FACE_LEVEL=%s\n", g_cfg.face_level == 0 ? "poco" : g_cfg.face_level == 2 ? "mucho" : "normal");
+    sb_appendf(&sb, "SOKARI_FACE_SYMBOLS=%d\n", g_cfg.face_symbols ? 1 : 0);
     sb_appendf(&sb, "SOKARI_END_SILENCE=%s\n", g_cfg.end_silence == 0 ? "corta" : g_cfg.end_silence == 2 ? "larga" : "normal");
     sb_appendf(&sb, "SOKARI_DUCK=%d\n", g_cfg.duck ? 1 : 0);
     sb_appendf(&sb, "SOKARI_ORB_POS=%d,%d\n", g_cfg.orb_x, g_cfg.orb_y);

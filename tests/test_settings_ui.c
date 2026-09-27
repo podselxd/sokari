@@ -112,5 +112,32 @@ int wmain(int argc, wchar_t **argv)
     }
     DestroyWindow(h);
     pump(100);
+    if (!first) {
+        /* Con una cara aparecen sus opciones: también tiene que caber con 1366×768. */
+        AppConfig c = config_snapshot();
+        int style = c.sphere_style;
+        c.sphere_style = 2;
+        config_apply(&c);
+        settings_open(GetModuleHandleW(NULL), false, NULL);
+        h = settings_window();
+        pump(400);
+        UINT dpi = GetDpiForWindow(h);
+        RECT r = {0, 0, MulDiv(900, (int)dpi, 96), MulDiv(688, (int)dpi, 96)};
+        AdjustWindowRectExForDpi(&r, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE, 0, dpi);
+        SetWindowPos(h, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
+        int y = MulDiv(110 + 2 * 46 + 20, (int)dpi, 96), x = MulDiv(60, (int)dpi, 96);
+        SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+        pump(300);
+        int over = settings_overflow();
+        printf("%s Pantalla con una cara y 688 de alto: %s (%d px)\n", over == 0 ? "ok   " : "FALLA",
+               over ? "se mete en Guardar" : "cabe arriba de Guardar", over);
+        if (over) fails++;
+        capture(h, argv[1], L"ui_pantalla_cara_1366x768");
+        DestroyWindow(h);
+        pump(100);
+        c.sphere_style = style;
+        config_apply(&c);
+        config_free(&c);
+    }
     return fails ? 1 : 0;
 }

@@ -577,6 +577,8 @@ void affect_engine_tool(AffectEngine *e, double t, const char *name, bool ok)
 
 static SRWLOCK g_lock = SRWLOCK_INIT;
 static AffectEngine *g_e;
+static AffectCue g_cue;
+static unsigned g_cue_seq;
 static double g_t0, g_saved_t;
 static float g_saved_v, g_saved_a;
 
@@ -714,11 +716,18 @@ void affect_stimulus(const AffectStimulus *s)
     ReleaseSRWLockExclusive(&g_lock);
 }
 
+static void cue_locked(AffectCue cue)
+{
+    g_cue = cue;
+    g_cue_seq++;
+}
+
 void affect_emotions(const float amount[AFF_COUNT], const char *cause)
 {
     AcquireSRWLockExclusive(&g_lock);
     AffectEngine *e = engine_locked();
     affect_engine_emotions(e, e->t, amount, cause);
+    cue_locked(AFF_CUE_AI);
     ReleaseSRWLockExclusive(&g_lock);
 }
 
@@ -727,14 +736,22 @@ void affect_outcome(float expected, bool ok, float importance, const char *cause
     AcquireSRWLockExclusive(&g_lock);
     AffectEngine *e = engine_locked();
     affect_engine_outcome(e, e->t, expected, ok, importance, cause);
+    cue_locked(ok ? AFF_CUE_DONE : AFF_CUE_FAIL);
     ReleaseSRWLockExclusive(&g_lock);
 }
 
 void affect_event(AffectEvent ev)
 {
+    static const AffectCue CUE[AFF_EV_COUNT] = {
+        [AFF_EV_THANKS] = AFF_CUE_THANKS,         [AFF_EV_GREETING] = AFF_CUE_GREETING,
+        [AFF_EV_JOKE] = AFF_CUE_JOKE,             [AFF_EV_TASK_DONE] = AFF_CUE_DONE,
+        [AFF_EV_DELICATE] = AFF_CUE_DELICATE,     [AFF_EV_NETWORK_ERROR] = AFF_CUE_ERROR,
+        [AFF_EV_QUOTA] = AFF_CUE_ERROR,
+    };
     AcquireSRWLockExclusive(&g_lock);
     AffectEngine *e = engine_locked();
     affect_engine_event(e, e->t, ev);
+    if (ev >= 0 && ev < AFF_EV_COUNT) cue_locked(CUE[ev]);
     ReleaseSRWLockExclusive(&g_lock);
 }
 
@@ -743,7 +760,17 @@ void affect_tool(const char *name, bool ok)
     AcquireSRWLockExclusive(&g_lock);
     AffectEngine *e = engine_locked();
     affect_engine_tool(e, e->t, name, ok);
+    cue_locked(ok ? AFF_CUE_DONE : AFF_CUE_FAIL);
     ReleaseSRWLockExclusive(&g_lock);
+}
+
+AffectCue affect_last_cue(unsigned *seq)
+{
+    AcquireSRWLockShared(&g_lock);
+    AffectCue c = g_cue;
+    if (seq) *seq = g_cue_seq;
+    ReleaseSRWLockShared(&g_lock);
+    return c;
 }
 
 AffectState affect_get(void)

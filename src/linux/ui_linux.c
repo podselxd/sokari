@@ -29,6 +29,7 @@
 #include "resource.h"
 #include "resources.h"
 #include "skills.h"
+#include "face.h"
 #include "sphere.h"
 #include "update.h"
 #include "util.h"
@@ -57,6 +58,12 @@ typedef struct {
     SphereAppear ap;
     int anim;
     bool fresh;
+    /* La cara (beta): su pose y los colores del cuadro que sigue. */
+    Face *face;
+    SphereFace pose;
+    SphereParams draw;
+    bool face_on, face_symbols;
+    int face_level;
 } Ui;
 
 static Ui U;
@@ -226,6 +233,21 @@ static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer u)
     U.pulse = st == JV_SPEAKING ? (float)fmin(1.0, U.pulse_env / fmax(0.3, U.pulse_peak)) : 0.0f;
     U.angle += U.cur.rotation_speed * dt * (1.0 + U.voice * 0.8);
     U.voice_t += dt * (1.0 + 2.5 * U.voice);
+    U.face_on = sphere_style_is_face((SphereStyle)U.want_style);
+    if (U.face_on) {
+        if (!U.face) U.face = face_create((unsigned)g_get_monotonic_time());
+        FaceInput in;
+        memset(&in, 0, sizeof in);
+        in.activity = (FaceActivity)st; /* mismo orden que JvState */
+        in.voice = U.voice;
+        in.pulse = U.pulse;
+        in.affect = affect_get();
+        in.cue = affect_last_cue(&in.cue_seq);
+        in.level = (FaceLevel)U.face_level;
+        in.symbols = U.face_symbols;
+        face_step(U.face, dt, &in, &U.pose);
+        face_sphere_colors(&in.affect, &U.cur, &U.draw);
+    }
     gtk_widget_queue_draw(w);
     return G_SOURCE_CONTINUE;
 }
@@ -252,7 +274,9 @@ static gboolean on_draw(GtkWidget *w, cairo_t *cr, gpointer u)
     cairo_surface_flush(U.surf);
     int canvas = cairo_image_surface_get_width(U.surf);
     sphere_set_presence(U.sr, U.ap.anim, U.ap.presence);
-    sphere_render(U.sr, t, U.angle, U.voice_t, &U.cur, U.voice, U.pulse, (SphereStyle)style,
+    bool face = U.face_on && sphere_style_is_face((SphereStyle)style);
+    sphere_set_face(U.sr, face ? &U.pose : NULL);
+    sphere_render(U.sr, t, U.angle, U.voice_t, face ? &U.draw : &U.cur, U.voice, U.pulse, (SphereStyle)style,
                   (uint32_t *)cairo_image_surface_get_data(U.surf), cairo_image_surface_get_stride(U.surf) / 4, false);
     cairo_surface_mark_dirty(U.surf);
 
@@ -293,6 +317,8 @@ static bool subtitles_on(void)
     bool on = cfg.subtitles;
     U.want_style = cfg.sphere_style;
     U.anim = cfg.appear_anim;
+    U.face_level = cfg.face_level;
+    U.face_symbols = cfg.face_symbols;
     SecureZeroMemory(cfg.groq_api_key, strlen(cfg.groq_api_key));
     config_free(&cfg);
     return on;
