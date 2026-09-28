@@ -56,3 +56,12 @@ uint8_t *screen_grab(int *w, int *h, char **why)
     *h = H;
     return rgb;
 }
+
+/* PDF en Windows: sin una biblioteca de PDF no se puede sacar su texto. */
+#include "lector.h"
+char *pdf_text(const wchar_t *path, char **why)
+{
+    (void)path;
+    if (why) *why = xstrdup("En Windows todavía no leo PDF: ábrelo en Edge y usa «Leer en voz alta» (Ctrl+Shift+U).");
+    return NULL;
+}

@@ -40,3 +40,27 @@ uint8_t *screen_grab(int *w, int *h, char **why)
     g_free(path);
     return rgb;
 }
+
+/* PDF en Linux: pdftotext (poppler-utils, viene en Ubuntu). */
+#include "linux/proc.h"
+#include "lector.h"
+char *pdf_text(const wchar_t *path, char **why)
+{
+    char *p = wide_to_utf8(path), *bin = proc_which("pdftotext");
+    char *out = NULL;
+    if (!bin) {
+        if (why) *why = xstrdup("Para leer PDF necesito pdftotext: sudo apt install poppler-utils");
+    } else {
+        const char *argv[] = {bin, "-q", "-enc", "UTF-8", p, "-", NULL};
+        int code = -1;
+        out = proc_run(argv, NULL, 0, 20000, 2 * 1024 * 1024, NULL, &code);
+        if (code != 0) {
+            free(out);
+            out = NULL;
+            if (why) *why = xstrdup("No pude leer ese PDF.");
+        }
+    }
+    free(bin);
+    free(p);
+    return out;
+}

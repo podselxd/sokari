@@ -10,6 +10,8 @@
 #include "app.h"
 #include "config.h"
 #include "desk.h"
+#include "gustos.h"
+#include "lector.h"
 #include "groq.h"
 #include "intents.h"
 #include "skills.h"
@@ -595,6 +597,11 @@ static const ToolGroup TOOL_GROUPS[] = {
      " archivo archivos carpeta carpetas descargas documento documentos escritorio pdf foto fotos imagen imagenes "
      "mueve muevelo muevela mover borra borralo borrala borrar elimina eliminalo papelera lee leeme txt docx "
      "crea crealo creame hazme guarda guardalo escribe escribeme nota notas texto lista "},
+    {"leer_en_voz", " leeme lee leer leelo leela voz alta pdf portapapeles copie copiado texto documento archivo "},
+    {"radio", " radio estacion estaciones emisora musica cancion canciones rock pop jazz noticias playlist playlists "
+              "favorito favoritos favoritas historial escuchar pon ponme quita para siguiente "},
+    {"anotar_gusto", " gusta gustan gusto gustos encanta encantan encanto odias odio desagrada prefieres favorito favorita "
+                     "opinas piensas parece cancion musica peli pelicula serie comida sientes "},
     {"ver_pantalla", " pantalla monitor ves viendo mira mirar observa checa error ventana captura "},
     {"leer_portapapeles copiar_portapapeles", " portapapeles copia copiado copiaste copie pega pegar pegalo "},
     {"identificarse proteger_perfil", " soy llamo llego perfil contrasena quien habla "},
@@ -687,7 +694,7 @@ static bool is_action_tool(const char *name)
                                       "gestionar_dispositivo", "cambiar_permisos", "mover_archivo", "copiar_portapapeles",
                                       "guardar_dato",   "registrar_dispositivo", "create_macro", "exportar_a_obsidian",
                                       "borrar_memoria_reciente", "presionar_teclas", "ir_a_pestana", "subir_archivo",
-                                      "crear_archivo"};
+                                      "crear_archivo", "radio", "leer_en_voz"};
     for (size_t i = 0; i < sizeof ACT / sizeof *ACT; i++)
         if (!strcmp(name, ACT[i])) return true;
     return false;
@@ -984,6 +991,17 @@ static cJSON *build_request(Conversation *c)
         cJSON_AddStringToObject(m, "content", affect_prompt());
         cJSON_AddItemToArray(msgs, m);
     }
+    {
+        /* Sus gustos, para que sea constante con ellos. */
+        char *g = gustos_resumen();
+        if (g) {
+            cJSON *m = cJSON_CreateObject();
+            cJSON_AddStringToObject(m, "role", "system");
+            cJSON_AddStringToObject(m, "content", g);
+            cJSON_AddItemToArray(msgs, m);
+            free(g);
+        }
+    }
     if (c->turn_skill) {
         /* Tu skill de IA: sus instrucciones, solo en este pedido. */
         cJSON *m = cJSON_CreateObject();
@@ -1133,6 +1151,24 @@ static TurnResult process_turn(Conversation *c, const char *text)
                                       "Me encantaría, pero en Configuración está apagado que me mueva por el escritorio.")
                                    : "Va, me quedo quieta.");
             memory_persist("assistant", r.reply);
+            r.keep_going = true;
+            return r;
+        }
+    }
+    /* «Léeme lo que copié»: con su voz, sin pasar el texto por la IA. */
+    {
+        static const char *const READ[] = {" leeme lo que copie ", " lee lo que copie ", " lee el portapapeles ",
+                                           " leeme el portapapeles ", " leeme lo que tengo copiado ",
+                                           " lee lo que tengo copiado ", " leeme lo copiado "};
+        char *nm = intents_normalize(text);
+        bool hit = false;
+        for (size_t i = 0; i < sizeof READ / sizeof *READ && !hit; i++) hit = strstr(nm, READ[i]) != NULL;
+        free(nm);
+        if (hit) {
+            cJSON *args = cJSON_Parse("{\"fuente\":\"portapapeles\"}");
+            memory_persist("user", text);
+            r.reply = tool_leer_en_voz(args);
+            cJSON_Delete(args);
             r.keep_going = true;
             return r;
         }

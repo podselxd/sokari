@@ -807,5 +807,92 @@
         }
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "anotar_gusto",
+      "description": "Anota un gusto TUYO (de Sokari) cuando algo te encante, te guste o te desagrade de verdad en lo que viven (una canción, un tema, una comida, cómo te hablan). Se recuerda para siempre. No lo menciones.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cosa": {
+            "type": "string"
+          },
+          "nivel": {
+            "type": "string",
+            "enum": [
+              "encanta",
+              "gusta",
+              "desagrada"
+            ]
+          }
+        },
+        "required": [
+          "cosa",
+          "nivel"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "radio",
+      "description": "Radio por internet dentro de Sokari (sin YouTube): poner una estación o género, pararla, la siguiente, guardar la que suena en favoritos o en una playlist, poner una playlist, o decir favoritos/playlists/historial.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "accion": {
+            "type": "string",
+            "enum": [
+              "poner",
+              "parar",
+              "siguiente",
+              "guardar_favorito",
+              "agregar_a_playlist",
+              "poner_playlist",
+              "listas"
+            ]
+          },
+          "busqueda": {
+            "type": "string",
+            "description": "estación o género para poner (rock, noticias, Radio Fórmula…)"
+          },
+          "nombre": {
+            "type": "string",
+            "description": "nombre de la playlist"
+          }
+        },
+        "required": [
+          "accion"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "leer_en_voz",
+      "description": "Lee en voz alta, tal cual y sin resumir, lo que el usuario copió o un archivo de texto o PDF. Úsala cuando pida «léeme…». No repitas el texto: se lee solo.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fuente": {
+            "type": "string",
+            "enum": [
+              "portapapeles",
+              "archivo"
+            ]
+          },
+          "ruta": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fuente"
+        ]
+      }
+    }
   }
 ]
