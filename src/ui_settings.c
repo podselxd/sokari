@@ -132,6 +132,7 @@ static struct {
     int volume, sensitivity;
     int end_silence, duck; /* cuánto espera cuando te callas; bajar el volumen mientras te escucha */
     int barge_in;          /* hablarle encima la calla */
+    int desk_move, desk_after, screen_view; /* moverse sola (y después de cuánto) y ver tu pantalla */
     wchar_t *status_line;
     bool api_visible, stop_visible, mesh_visible, key_visible[4];
     MeshDevice *devs; /* tus dispositivos, releídos cada vez que se arma la sección */
@@ -167,6 +168,7 @@ static const wchar_t *STYLE_LABELS[] = {L"Halo de puntos", L"Líneas", L"Solo oj
 #define THUMB_TIMER 7
 static const wchar_t *APPEAR_LABELS[] = {L"Materializarse", L"Deslizarse", L"Zoom", L"Ninguna"};
 static const wchar_t *END_LABELS[] = {L"Poco", L"Normal", L"Más"};
+static const wchar_t *DESK_AFTER_LABELS[] = {L"2 s", L"5 s", L"10 s", L"30 s"};
 
 static int dp(int v)
 {
@@ -641,6 +643,12 @@ static void layout(void)
         }
         layout_button(x, y, dp(190), L"Desinstalar Sokari…", A_UNINSTALL, false);
         y += dp(50);
+        y = layout_toggle(x, y, w, &S.desk_move, L"¿Puede Sokari moverse por el escritorio? (esfera flotante)");
+        if (S.desk_move) {
+            layout_label(x, y + dp(9), w * 2 / 5, L"Empieza después de");
+            y = layout_segment(x + w * 2 / 5, y, w - w * 2 / 5, &S.desk_after, DESK_AFTER_LABELS, 4) - dp(4);
+        }
+        y = layout_toggle(x, y, w, &S.screen_view, L"Puede ver mi pantalla (solo cuando se lo pides)");
         y = layout_toggle(x, y, w, &S.full_access, L"Acceso completo (menos borrar)");
         y = layout_help(x, y - dp(8), w,
                         L"Prendido, hace todo sin preguntarte: mover archivos, mandar mensajes, subir archivos, "
@@ -1061,6 +1069,11 @@ static void load_values(void)
     S.end_silence = S.cfg.end_silence;
     S.duck = S.cfg.duck;
     S.barge_in = S.cfg.barge_in;
+    S.desk_move = S.cfg.desk_move;
+    S.screen_view = S.cfg.screen_view;
+    S.desk_after = 1;
+    for (int i = 0; i < 4; i++)
+        if (DESK_AFTER_CHOICES[i] == S.cfg.desk_after) S.desk_after = i;
     S.subtitles = S.cfg.subtitles;
     S.show_only_talking = S.cfg.show_only_talking;
     S.full_access = S.cfg.full_access;
@@ -1166,6 +1179,9 @@ static void save(void)
     c.end_silence = S.end_silence;
     c.duck = S.duck != 0;
     c.barge_in = S.barge_in != 0;
+    c.desk_move = S.desk_move != 0;
+    c.screen_view = S.screen_view != 0;
+    c.desk_after = DESK_AFTER_CHOICES[S.desk_after >= 0 && S.desk_after < 4 ? S.desk_after : 1];
     c.subtitles = S.subtitles != 0;
     c.show_only_talking = S.show_only_talking != 0;
     c.full_access = S.full_access != 0;

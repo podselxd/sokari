@@ -48,6 +48,9 @@ typedef struct {
     bool mexa;              /* habla como mexicano ("háblame como mexa"); entenderlo, siempre */
     bool duck;              /* baja el volumen de la PC mientras te escucha */
     bool barge_in;          /* hablarle encima la calla (sin decir «Hey Sokari») */
+    bool desk_move;         /* ¿Puede Sokari moverse por el escritorio? (esfera flotante) */
+    int desk_after;         /* empieza después de tantos segundos sin hablarle: 2, 5, 10 o 30 */
+    bool screen_view;       /* Puede ver mi pantalla (capturas solo cuando se lo pides) */
     bool face_symbols;      /* la cara con símbolos: lágrima, destellos, gota de sudor, «?», enojo, «…» */
 } AppConfig;
 
@@ -103,6 +106,11 @@ bool config_mexa(void);
 int config_end_silence(void);
 bool config_duck(void);
 bool config_barge_in(void);
+bool config_desk_move(void);
+int config_desk_after(void);
+bool config_screen_view(void);
+/* Los segundos que se ofrecen en «Empieza después de…». */
+extern const int DESK_AFTER_CHOICES[4];
 void config_set_mexa(bool on);
 void config_set_full_access(bool on);
 void config_set_mic_muted(bool muted);

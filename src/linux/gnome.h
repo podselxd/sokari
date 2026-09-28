@@ -67,6 +67,11 @@ GnomeStatus gnome_launch_app(const char *desktop_id, const char *const *uris, ch
    dónde quedó (pueden ser NULL). ok false si no la encontró. */
 GnomeStatus gnome_own_window(const char *title, const char *action, int x, int y, int *out_x, int *out_y, bool *ok);
 
+/* Lo que hay en el escritorio (para moverse sola): monitores, ventanas, el
+   cursor y si algo está en pantalla completa. Necesita la extensión 3. */
+#include "desk.h"
+GnomeStatus gnome_desk(DeskView *v);
+
 /* Al arrancar: si hay GNOME y la extensión no está prendida, la prende (si
    GNOME todavía no la conoce, queda para el siguiente inicio de sesión). No
    la toca si tú la apagaste. */

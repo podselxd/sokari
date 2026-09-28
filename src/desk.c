@@ -328,3 +328,15 @@ bool desk_step(DeskWalker *w, const DeskView *v, double dt, bool allowed, DeskSt
     }
     return lroundf(w->x) != lroundf(x_before) || lroundf(w->y) != lroundf(y_before);
 }
+
+static volatile int g_hold;
+
+void desk_hold(bool hold)
+{
+    __atomic_store_n(&g_hold, hold ? 1 : 0, __ATOMIC_SEQ_CST);
+}
+
+bool desk_held(void)
+{
+    return __atomic_load_n(&g_hold, __ATOMIC_SEQ_CST) != 0;
+}

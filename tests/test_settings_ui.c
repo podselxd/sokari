@@ -118,6 +118,14 @@ int wmain(int argc, wchar_t **argv)
                        over_a ? "se mete en Guardar" : "cabe arriba de Guardar");
                 if (over_a) fails++;
                 if (k == 1) capture(h, argv[1], L"ui_audio_1366x768");
+                /* General (con moverse por el escritorio y ver la pantalla) también. */
+                int yg = MulDiv(110 + 4 * 46 + 20, (int)dpi, 96);
+                SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(MulDiv(60, (int)dpi, 96), yg));
+                pump(200);
+                int over_g = settings_overflow();
+                printf("%s General con %d de alto: %s\n", over_g == 0 ? "ok   " : "FALLA", heights[k],
+                       over_g ? "se mete en Guardar" : "cabe arriba de Guardar");
+                if (over_g) fails++;
             }
         }
     }

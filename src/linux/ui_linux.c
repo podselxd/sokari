@@ -34,6 +34,7 @@
 #include "update.h"
 #include "util.h"
 #include "voice.h"
+#include "desk.h"
 
 #define APP_ID "io.github.podselxd.Sokari"
 #define SPHERE_MAX 560 /* más grande se ve igual y cuesta más dibujarla */
@@ -75,6 +76,12 @@ typedef struct {
     SphereFace pose;
     SphereParams draw;
     bool face_on, face_symbols;
+    /* Moverse sola por el escritorio (esfera flotante, con la extensión). */
+    DeskWalker walker;
+    DeskView desk;
+    DeskStep dstep;
+    bool walker_ready, desk_ok, was_walking, desk_replace;
+    double busy_t, desk_t, desk_clock;
 } Ui;
 
 static Ui U;
@@ -236,6 +243,40 @@ static void target_params(int st, SphereParams *out)
     }
 }
 
+static bool own_window(const char *action, int x, int y, int *out_x, int *out_y);
+
+/* Sola por el escritorio, como en Windows: después de un rato sin hablarle,
+   si la dejas, y nunca mientras habla, escucha o la arrastras. Lo que hay en
+   pantalla y moverla pasan por la extensión de GNOME. */
+static void desk_tick(double dt, int st)
+{
+    U.desk_clock += dt;
+    if (st != JV_IDLE) U.busy_t = U.desk_clock;
+    U.dstep.moving = false;
+    if (U.mode != DISPLAY_WINDOWED_BORDERLESS || !U.win || !gtk_widget_get_visible(U.win) || U.ap.presence < 1.0f)
+        return;
+    if (!U.walker_ready || U.desk_replace) {
+        int x = 0, y = 0, w = 0, h = 0;
+        if (!own_window("where", 0, 0, &x, &y)) return;
+        gtk_window_get_size(GTK_WINDOW(U.win), &w, &h);
+        int side = w < h ? w : h;
+        if (side < 16) return;
+        if (!U.walker_ready) desk_init(&U.walker, x, y, side, side * 9 / 10, (unsigned)g_get_monotonic_time());
+        else desk_place(&U.walker, x, y);
+        U.walker_ready = true;
+        U.desk_replace = false;
+    }
+    if (U.desk_clock - U.desk_t >= 0.2) {
+        U.desk_ok = gnome_desk(&U.desk) == GN_OK; /* sin la extensión 3, no se mueve */
+        U.desk_t = U.desk_clock;
+    }
+    bool allowed = U.desk_ok && config_desk_move() && !desk_held() && !U.pressed && st == JV_IDLE &&
+                   U.desk_clock - U.busy_t >= config_desk_after();
+    if (desk_step(&U.walker, &U.desk, dt, allowed, &U.dstep)) own_window("move", U.dstep.x, U.dstep.y, NULL, NULL);
+    if (U.was_walking && !U.dstep.moving) config_set_orb_pos(U.dstep.x, U.dstep.y);
+    U.was_walking = U.dstep.moving;
+}
+
 /* El mismo movimiento que en Windows: se acerca a lo que pide el estado, se
    agranda con la voz y late con cada sílaba. */
 static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer u)
@@ -255,6 +296,7 @@ static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer u)
         return G_SOURCE_CONTINUE;
     }
     int st = g_atomic_int_get(&g_state);
+    desk_tick(dt, st);
     SphereParams target;
     target_params(st, &target);
     sphere_lerp(&U.cur, &U.cur, &target, (float)(1.0 - exp(-dt / 0.25)));
@@ -282,6 +324,9 @@ static gboolean on_tick(GtkWidget *w, GdkFrameClock *clock, gpointer u)
         in.cue = affect_last_cue(&in.cue_seq);
         in.level = FACE_LEVEL_HIGH; /* siempre «mucho» */
         in.symbols = U.face_symbols;
+        in.look_x = U.walker_ready ? U.dstep.look_x : 0;
+        in.look_y = U.walker_ready ? U.dstep.look_y : 0;
+        in.walking = U.dstep.moving;
         face_step(U.face, dt, &in, &U.pose);
         face_sphere_colors(&in.affect, &U.cur, &U.draw);
     }
@@ -410,6 +455,7 @@ static gboolean where_tick(gpointer u)
 static void watch_place(void)
 {
     if (U.mode != DISPLAY_WINDOWED_BORDERLESS) return;
+    U.desk_replace = true; /* la arrastraste: de ahí sigue */
     U.where_tries = 0;
     U.where_x = U.where_y = -1;
     if (!U.where_timer) U.where_timer = g_timeout_add(700, where_tick, NULL);

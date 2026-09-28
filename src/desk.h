@@ -95,4 +95,8 @@ DeskRect desk_body_at(const DeskWalker *w, float x, float y);
 /* Cuánto aire deja alrededor del cursor y de donde escribes. */
 int desk_margin(const DeskWalker *w);
 
+/* «Quieta» / «no te muevas» y «ya puedes moverte» (desde cualquier hilo). */
+void desk_hold(bool hold);
+bool desk_held(void);
+
 #endif

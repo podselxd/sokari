@@ -9,6 +9,7 @@
 #include "agent.h"
 #include "app.h"
 #include "config.h"
+#include "desk.h"
 #include "groq.h"
 #include "intents.h"
 #include "skills.h"
@@ -1102,6 +1103,35 @@ static TurnResult process_turn(Conversation *c, const char *text)
         memory_persist("assistant", r.reply);
         r.keep_going = true;
         return r;
+    }
+    /* «Quieta» / «ya puedes moverte» (moverse sola por el escritorio): sin la
+       IA. Solo si es casi toda la frase: «no te muevas de esta página» no es. */
+    {
+        static const char *const STAY[] = {" quieta ", " quedate quieta ", " no te muevas ", " deja de moverte ",
+                                           " quedate ahi ", " para de moverte ", " ya no te muevas ",
+                                           " no te andes moviendo ", " estate quieta "};
+        static const char *const GO[] = {" ya puedes moverte ", " puedes moverte ", " ya te puedes mover ",
+                                         " muevete ", " ya muevete ", " date una vuelta ", " ve a pasear "};
+        char *nm = intents_normalize(text);
+        int words = 0;
+        for (const char *p = nm; *p; p++)
+            if (*p != ' ' && p[-1] == ' ') words++;
+        int desk = -1;
+        for (size_t i = 0; i < sizeof STAY / sizeof *STAY && desk < 0 && words <= 5; i++)
+            if (strstr(nm, STAY[i])) desk = 0;
+        for (size_t i = 0; i < sizeof GO / sizeof *GO && desk < 0 && words <= 5; i++)
+            if (strstr(nm, GO[i])) desk = 1;
+        free(nm);
+        if (desk >= 0) {
+            desk_hold(desk == 0);
+            memory_persist("user", text);
+            r.reply = xstrdup(desk ? (config_desk_move() ? "¡Va! Me doy una vuelta." :
+                                      "Me encantaría, pero en Configuración está apagado que me mueva por el escritorio.")
+                                   : "Va, me quedo quieta.");
+            memory_persist("assistant", r.reply);
+            r.keep_going = true;
+            return r;
+        }
     }
     /* "Ignora todo lo anterior": empezar de cero, sin pasar por el modelo (que
        a veces lo tomaba como un intento de engañarlo y se negaba). */

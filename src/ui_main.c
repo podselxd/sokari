@@ -17,6 +17,8 @@
 #include "affect.h"
 #include "app.h"
 #include "config.h"
+#include "desk.h"
+#include "desk_win.h"
 #include "face.h"
 #include "log.h"
 #include "resource.h"
@@ -64,6 +66,7 @@ static struct {
        no se corten. La posición guardada es la del cuadro de la esfera. */
     int orb_base, orb_pad, orb_size;
     bool win_full, in_sizemove, size_changed, close_hint_shown;
+    volatile LONG desk_moved; /* la arrastraste: el caminar empieza desde ahí */
     WINDOWPLACEMENT win_place;
 
     HANDLE thread, wake;
@@ -530,6 +533,7 @@ static LRESULT CALLBACK hud_proc(HWND h, UINT m, WPARAM w, LPARAM l)
             RECT r;
             GetWindowRect(h, &r);
             config_set_orb_pos(r.left + U.orb_pad, r.top + U.orb_pad);
+            InterlockedExchange(&U.desk_moved, 1);
         } else if (windowed(U.mode)) {
             save_window_rect(h);
             if (U.size_changed) {
@@ -711,6 +715,12 @@ static DWORD WINAPI render_main(LPVOID arg)
     LONG ap_seq = 0;
     bool slid = false, back_moved = false;
     POINT home = {0, 0};
+    /* Moverse sola por el escritorio (esfera flotante). */
+    DeskWalker walker;
+    DeskView view;
+    DeskStep dstep = {0};
+    bool walker_ready = false, was_walking = false;
+    double last_busy = 0, last_view = -1;
     int home_bottom = 0;
 
     while (InterlockedCompareExchange(&U.running, 1, 1)) {
@@ -806,6 +816,31 @@ static DWORD WINAPI render_main(LPVOID arg)
         bool slide = ap.anim == SPHERE_ANIM_SLIDE && ap.presence < 1.0f;
         bool orb = U.mode == DISPLAY_WINDOWED_BORDERLESS;
         sphere_set_presence(sr, ap.anim, ap.presence);
+        /* Sola por el escritorio: después de un rato sin hablarle, si la
+           dejas, y nunca mientras habla, escucha o la arrastras. */
+        bool desk_moved = false;
+        if (st != JV_IDLE) last_busy = t;
+        if (orb && hud && !slide && !slid && IsWindowVisible(hud)) {
+            if (!walker_ready || InterlockedExchange(&U.desk_moved, 0)) {
+                RECT wr;
+                GetWindowRect(hud, &wr);
+                if (!walker_ready) desk_init(&walker, wr.left, wr.top, sphere.w, sphere_base, (unsigned)GetTickCount());
+                else desk_place(&walker, wr.left, wr.top);
+                walker_ready = true;
+            }
+            if (t - last_view >= 0.15) {
+                desk_view_windows(&view, hud);
+                last_view = t;
+            }
+            bool allowed = config_desk_move() && !desk_held() && !U.in_sizemove && st == JV_IDLE &&
+                           ap.presence >= 1.0f && t - last_busy >= config_desk_after();
+            desk_moved = desk_step(&walker, &view, dt, allowed, &dstep);
+            /* Donde se queda es donde la encuentras la próxima vez. */
+            if (was_walking && !dstep.moving) config_set_orb_pos(dstep.x + U.orb_pad, dstep.y + U.orb_pad);
+            was_walking = dstep.moving;
+        } else {
+            dstep.moving = false;
+        }
         /* La cara (beta): su pose y sus colores salen del estado afectivo. */
         SphereParams draw = cur;
         if (sphere_style_is_face((SphereStyle)U.style)) {
@@ -819,6 +854,9 @@ static DWORD WINAPI render_main(LPVOID arg)
             in.cue = affect_last_cue(&in.cue_seq);
             in.level = FACE_LEVEL_HIGH; /* siempre «mucho» */
             in.symbols = U.face_symbols;
+            in.look_x = walker_ready ? dstep.look_x : 0;
+            in.look_y = walker_ready ? dstep.look_y : 0;
+            in.walking = dstep.moving;
             SphereFace pose;
             face_step(face, dt, &in, &pose);
             face_sphere_colors(&in.affect, &cur, &draw);
@@ -847,6 +885,9 @@ static DWORD WINAPI render_main(LPVOID arg)
                 pos = (POINT){home.x, home.y + (int)lroundf(off * (float)(home_bottom - home.y))};
                 at = &pos;
                 slid = slide;
+            } else if (desk_moved) {
+                pos = (POINT){dstep.x, dstep.y};
+                at = &pos;
             }
             UpdateLayeredWindow(hud, NULL, at, &sz, sphere.dc, &src, 0, &bf, ULW_ALPHA);
         } else if (hud && back.dc) {
