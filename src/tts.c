@@ -23,7 +23,7 @@ static const wchar_t *VOICE_CATEGORIES[] = {
 
 /* Preferencia por defecto: voz masculina de México, la más parecida a la
    voz que usaba la versión en Python (es-MX-JorgeNeural). */
-static const char *PREFERRED[] = {"Raul", "Jorge", "Sabina", "Spanish", "Español"};
+static const char *PREFERRED[] = {"Sabina", "Raul", "Jorge", "Spanish", "Español"};
 
 static ISpVoice *g_voice;
 static bool g_com;

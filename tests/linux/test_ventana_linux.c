@@ -45,7 +45,7 @@ static void test_modo(void)
     config_apply(&c);
     config_free(&c);
     char *saved = read_file_all(g_paths.config_file, NULL);
-    check(saved && strstr(saved, "SOKARI_CONFIG_VERSION=2\n"), "al guardar anota la versión de la configuración");
+    check(saved && strstr(saved, "SOKARI_CONFIG_VERSION=3\n"), "al guardar anota la versión de la configuración");
     free(saved);
     check(mode_after("GROQ_API_KEY=gsk_x\nSOKARI_DISPLAY_MODE=fullscreen\n") == DISPLAY_WINDOWED_BORDERLESS,
           "una configuración de antes (Linux no tenía modos: nadie eligió pantalla completa) pasa a la flotante");

@@ -90,3 +90,13 @@ Para convertir a mano: `pip install numpy onnx onnxruntime` y luego `python onnx
 - **Los audios de `tests/datos/`** salieron de piper-sample-generator (LibriTTS-R, CC BY 4.0).
 
 Por eso Sokari es gratis y no comercial.
+
+# Los íconos
+
+Los íconos de Windows (`res/sokari.ico`), Linux (`res/sokari.png` y `linux/iconos/`) y la app del celular (`movil/assets/` y los de `movil/android/.../res/`) son la esfera con ojos de fábrica, dibujada con el mismo código de la app. Si cambia su cara, se rehacen todos en Linux, desde la raíz del repo (necesita numpy y Pillow):
+
+```sh
+python3 herramientas/iconos.py
+```
+
+`render_icono.c` dibuja la esfera y `iconos.py` arma cada tamaño: en los chicos la esfera sale más gruesa, sin brillo de más, para que se sigan viendo los ojos.

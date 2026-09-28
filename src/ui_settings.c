@@ -1078,9 +1078,12 @@ static void load_values(void)
     S.voice_index = 0;
     for (int i = 0; i < S.nvoices; i++)
         if (!strcmp(S.voices[i].id, S.cfg.voice)) S.voice_index = i;
-    if (!*S.cfg.voice)
-        for (int i = 0; i < S.nvoices; i++)
-            if (str_contains_ci(S.voices[i].name, "Raul")) S.voice_index = i;
+    if (!*S.cfg.voice) { /* la de fábrica: Sabina (o Raúl si no está) */
+        static const char *const FIRST[] = {"Raul", "Sabina"};
+        for (int k = 0; k < 2; k++)
+            for (int i = 0; i < S.nvoices; i++)
+                if (str_contains_ci(S.voices[i].name, FIRST[k])) S.voice_index = i;
+    }
     free_string_list(S.mics, S.nmics);
     S.nmics = mic_list_devices(&S.mics);
     S.mic_index = 0;

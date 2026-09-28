@@ -31,7 +31,7 @@ HEY_SOKARI := $(wildcard res/hey_sokari.jww)
 RES_FILES := res/tools.json res/system_prompt.txt res/wakeword.bin res/sokari.png $(HEY_SOKARI)
 
 # Las pruebas que ya corren en Linux (las demás llegan con cada parte).
-LINUX_TESTS := test_afecto test_aparecer test_cara test_eco test_github test_vibra test_comandos test_skills test_confirmacion test_escucha test_malla test_resources test_respaldos test_teclado test_util test_voice test_wakeword test_groq
+LINUX_TESTS := test_afecto test_aparecer test_cara test_contorno test_eco test_github test_vibra test_comandos test_skills test_confirmacion test_escucha test_malla test_resources test_respaldos test_teclado test_util test_voice test_wakeword test_groq
 # Y las que son solo de Linux (tests/linux/).
 LINUX_ONLY_TESTS := $(patsubst tests/linux/%.c,%,$(wildcard tests/linux/*.c))
 TESTS := $(addprefix build-linux/tests/,$(LINUX_TESTS) $(LINUX_ONLY_TESTS))
@@ -76,6 +76,12 @@ build-linux/tests/test_confirmacion: tests/test_confirmacion.c \
 		$(filter-out build-linux/obj/groq.o build-linux/obj/tools.o,$(LIB_OBJ))
 	@mkdir -p $(dir $@)
 	$(CC) $(TEST_CFLAGS) -o $@ $^ $(LIBS)
+
+# Herramientas para desarrollar (no van en el paquete), p. ej. la que dibuja
+# los íconos: python3 herramientas/iconos.py
+build-linux/herramientas/%: herramientas/%.c $(LIB_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
 # Lo que va en el paquete (.deb o .rpm): make -f Makefile.linux install DESTDIR=... PREFIX=/usr
 PREFIX ?= /usr/local

@@ -236,7 +236,7 @@ int wmain(void)
     printf("-- Sokari habla y se oye a sí misma; le hablas encima dos veces --\n");
     Run *r = calloc(1, sizeof *r);
     r->l = listener_create();
-    r->hold_at_ms = 4300;
+    r->hold_at_ms = 5300;
     r->hold_ms = 600;
     r->t0 = GetTickCount64();
     Other other = {you + y0, y1 - y0, r->t0, {6500, 10000}, {0, 0}};
@@ -265,9 +265,12 @@ int wmain(void)
             if (other.started[i] && r->at[k] + 100 >= other.started[i] &&
                 r->at[k] <= other.started[i] + (y1 - y0) * 1000 / FS + 800)
                 yours[k] = true;
-    /* Eco quitado donde solo habla ella: de los 2 s a la primera pausa, y
-       después de la primera vez que le hablaste (sin volver a aprender). */
-    double m1 = 0, o1 = 0, m2 = 0, o2 = 0, hold_out = 0;
+    /* Eco quitado donde solo habla ella. Aprende en unos 4 s (mide el
+       retraso y se va afinando: ~12 dB al segundo, ~20 a los 3): de los 2 a
+       los 3 s ya debe quitar bastante; de los 4 s a la primera pausa y
+       después de la primera vez que le hablaste (sin volver a aprender), lo
+       de siempre. */
+    double m0 = 0, o0 = 0, m1 = 0, o1 = 0, m2 = 0, o2 = 0, hold_out = 0;
     int nh = 0, after_resume = -1;
     for (int k = 1; k < r->nframes; k++)
         if (r->held[k - 1] && !r->held[k] && other.started[0] && r->at[k] > other.started[0]) {
@@ -276,7 +279,11 @@ int wmain(void)
         }
     for (int k = 0; k < r->nframes; k++) {
         if (r->held[k] || yours[k]) continue;
-        if (r->at[k] >= 2500 && r->at[k] < r->hold_at_ms) {
+        if (r->at[k] >= 2000 && r->at[k] < 3000) {
+            m0 += r->mic[k];
+            o0 += r->out[k];
+        }
+        if (r->at[k] >= 4000 && r->at[k] < r->hold_at_ms) {
             m1 += r->mic[k];
             o1 += r->out[k];
         }
@@ -290,10 +297,11 @@ int wmain(void)
             hold_out += r->out[k];
             nh++;
         }
-    printf("      eco quitado antes de las pausas: %.1f dB · después de que le hablaste: %.1f dB · en pausa quedó "
-           "%.1f RMS\n",
-           db(m1, o1), db(m2, o2), nh ? sqrt(hold_out / nh) : -1.0);
-    check(db(m1, o1) >= 18, "le quita a su voz 18 dB o más");
+    printf("      eco quitado de los 2 a los 3 s: %.1f dB · ya que aprendió: %.1f dB · después de que le hablaste: "
+           "%.1f dB · en pausa quedó %.1f RMS\n",
+           db(m0, o0), db(m1, o1), db(m2, o2), nh ? sqrt(hold_out / nh) : -1.0);
+    check(m0 > 0 && db(m0, o0) >= 10, "aprende rápido: a los 2 s ya le quita a su voz 10 dB o más");
+    check(m1 > 0 && db(m1, o1) >= 18, "ya que aprendió, le quita 18 dB o más");
     check(m2 > 0 && db(m2, o2) >= 18, "y después de que le hablaste encima también (sin volver a aprender)");
     check(nh > 0 && sqrt(hold_out / nh) < 100, "en pausa no «resta» lo que ya no sonó");
 
