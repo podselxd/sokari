@@ -72,12 +72,12 @@ int wmain(int argc, wchar_t **argv)
     pump(600);
     capture(h, argv[1], first ? L"ui_first" : L"ui_cuenta");
     if (!first) {
-        /* Barra lateral: Inicio, Cuenta (ya capturada), Pantalla, Voz y audio, General, Skills,
-           Dispositivos, IA de respaldo. */
-        const wchar_t *names[] = {L"ui_inicio", NULL,        L"ui_pantalla",     L"ui_audio",
-                                  L"ui_general", L"ui_skills", L"ui_dispositivos", L"ui_ia"};
+        /* Barra lateral: Inicio, Cuenta (ya capturada), Pantalla, Voz y audio, General, Memoria,
+           Skills, Dispositivos, IA de respaldo. */
+        const wchar_t *names[] = {L"ui_inicio",  NULL,        L"ui_pantalla", L"ui_audio",        L"ui_general",
+                                  L"ui_memoria", L"ui_skills", L"ui_dispositivos", L"ui_ia"};
         UINT dpi = GetDpiForWindow(h);
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 9; i++) {
             if (!names[i]) continue;
             int y = MulDiv(110 + i * 46 + 20, (int)dpi, 96);
             int x = MulDiv(60, (int)dpi, 96);
@@ -126,6 +126,15 @@ int wmain(int argc, wchar_t **argv)
                 printf("%s General con %d de alto: %s\n", over_g == 0 ? "ok   " : "FALLA", heights[k],
                        over_g ? "se mete en Guardar" : "cabe arriba de Guardar");
                 if (over_g) fails++;
+                /* Memoria (tu bóveda de Obsidian y sus gustos) también. */
+                int ym = MulDiv(110 + 5 * 46 + 20, (int)dpi, 96);
+                SendMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(MulDiv(60, (int)dpi, 96), ym));
+                pump(200);
+                int over_m = settings_overflow();
+                printf("%s Memoria con %d de alto: %s\n", over_m == 0 ? "ok   " : "FALLA", heights[k],
+                       over_m ? "se mete en Guardar" : "cabe arriba de Guardar");
+                if (over_m) fails++;
+                if (k == 1) capture(h, argv[1], L"ui_memoria_1366x768");
             }
         }
     }

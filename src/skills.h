@@ -38,6 +38,9 @@ char *skills_create(const char *name, bool routine, const char *phrases, const c
 char *skills_user_summary(int *count);
 /* Una skill nueva de ejemplo para editar; su ruta (heap) o NULL. */
 wchar_t *skills_new_template(void);
+/* Tus pendientes (notas.json, el perfil de ahora): trae lo que cambiaste en
+   su nota de Obsidian y la reescribe. */
+void skills_notes_sync(void);
 
 /* Los temporizadores que ya sonaron: qué decir de cada uno (heap). */
 char **skills_due_timers(int *n);

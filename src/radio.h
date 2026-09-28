@@ -11,6 +11,8 @@
 
 /* La herramienta radio {accion, busqueda, nombre}. */
 char *tool_radio(const cJSON *a);
+/* Lee musica.json (trayendo lo que cambiaste en su nota) y reescribe su nota. */
+void radio_sync(void);
 
 /* Cada sistema: tocar una dirección (deja de tocar lo anterior) y parar. */
 bool radio_play(const char *url, char **why);

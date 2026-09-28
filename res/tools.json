@@ -812,7 +812,7 @@
     "type": "function",
     "function": {
       "name": "anotar_gusto",
-      "description": "Anota un gusto TUYO (de Sokari) cuando algo te encante, te guste o te desagrade de verdad en lo que viven (una canción, un tema, una comida, cómo te hablan). Se recuerda para siempre. No lo menciones.",
+      "description": "Anota un gusto TUYO (de Sokari) cuando algo te encante, te guste o te desagrade de verdad en lo que viven (una canción, un tema, una comida, cómo te hablan). Se recuerda y puedes cambiar de opinión, salvo en los que son para siempre. No lo menciones.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -826,6 +826,14 @@
               "gusta",
               "desagrada"
             ]
+          },
+          "para_siempre": {
+            "type": "boolean",
+            "description": "true solo si es parte de quien eres y nunca va a cambiar (a lo más 10)."
+          },
+          "soltar": {
+            "type": "string",
+            "description": "Opcional: uno de tus gustos para siempre que ya no lo es, para hacerle lugar."
           }
         },
         "required": [

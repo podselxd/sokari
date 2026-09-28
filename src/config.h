@@ -31,6 +31,7 @@ typedef struct {
     char *ai_order;
     char *skills_off; /* skills locales apagadas: "clima,chistes" */
     char *city;       /* tu ciudad, para el clima */
+    char *obsidian;   /* tu bóveda de Obsidian, para su memoria ("" = sin bóveda) */
     int display_mode;
     int resolution; /* 0 = automática, si no el alto en píxeles (720, 1080, 1440, 2160) */
     int volume;     /* 0-100, volumen de la voz de Sokari (no el del sistema) */
@@ -90,6 +91,10 @@ bool config_skill_enabled(const char *id);
 /* Tu ciudad para el clima ("" si no la has dicho) y guardarla. */
 char *config_city(void);
 void config_set_city(const char *city);
+/* La carpeta de tu bóveda de Obsidian ("" si no elegiste; heap) y elegirla
+   (se guarda al momento). */
+char *config_obsidian_vault(void);
+void config_set_obsidian_vault(const char *path);
 char *config_user_name(void);
 char *config_mesh_secret(bool create);
 /* Por qué ese texto no sirve como secreto de malla (una IP, el nombre de una

@@ -14,7 +14,9 @@
 #include "app.h"
 #include "audio.h"
 #include "autostart.h"
+#include "boveda.h"
 #include "config.h"
+#include "gustos.h"
 #include "linux/linux.h"
 #include "linux/settings_linux.h"
 #include "log.h"
@@ -30,9 +32,9 @@
 
 #define MAX_PCS 8
 
-static const char *const PAGE_IDS[SET_PAGES] = {"cuenta", "pantalla", "voz", "general", "skills", "pcs", "ia"};
-static const char *const PAGE_TITLES[SET_PAGES] = {"Cuenta",  "Pantalla", "Voz y audio",   "General",
-                                                   "Skills",  "Tus PCs",  "IA de respaldo"};
+static const char *const PAGE_IDS[SET_PAGES] = {"cuenta", "pantalla", "voz", "general", "memoria", "skills", "pcs", "ia"};
+static const char *const PAGE_TITLES[SET_PAGES] = {"Cuenta",  "Pantalla", "Voz y audio", "General",
+                                                   "Memoria", "Skills",   "Tus PCs",     "IA de respaldo"};
 static const char *const APPEAR_NAMES[SPHERE_ANIM_COUNT] = {"Materializarse", "Deslizarse", "Zoom", "Ninguna"};
 static const char *const END_NAMES[3] = {"Poco", "Normal", "Más"};
 static const char *const BACKUP_NAMES[4] = {"NVIDIA (build.nvidia.com, gratis con límite)",
@@ -59,6 +61,8 @@ typedef struct {
     int nvoices;
     /* General */
     GtkWidget *autostart, *full, *sound, *update, *desk_move, *desk_after, *screen_view;
+    /* Memoria */
+    GtkWidget *vault, *vault_buttons, *gustos, *forever;
     /* Skills */
     GtkWidget *skills[16], *city, *mine;
     /* Tus PCs */
@@ -740,6 +744,123 @@ static GtkWidget *page_general(Form *f, const AppConfig *cfg)
     return g;
 }
 
+/* ------------------------------------------------------------ Memoria --- */
+
+static void refresh_memory(Form *f)
+{
+    char *v = config_obsidian_vault();
+    wchar_t *dir = *v ? boveda_dir() : NULL;
+    char *t = !*v ? xstrdup("Sin bóveda: su memoria se queda en la carpeta de Sokari.")
+              : dir ? str_printf("Tu bóveda: %s", v)
+                    : str_printf("Tu bóveda: %s (no la encuentro; mientras, su memoria sigue en la carpeta de Sokari).", v);
+    gtk_label_set_text(GTK_LABEL(f->vault), t);
+    /* Sin «mostrar todo» de la ventana (se ocultan solos): se muestran o no aquí. */
+    if (*v) gtk_widget_show_all(f->vault_buttons);
+    else gtk_widget_hide(f->vault_buttons);
+    free(t);
+    free(dir);
+    free(v);
+    char *g = gustos_describe();
+    gtk_label_set_text(GTK_LABEL(f->gustos), g ? g : "Todavía no tiene gustos: los va formando con lo que viven juntos.");
+    free(g);
+    if (gustos_count_para_siempre() > 0) gtk_widget_show_all(f->forever);
+    else gtk_widget_hide(f->forever);
+}
+
+/* Se guarda al momento y escribe ya sus notas. */
+static void set_vault(Form *f, const char *path)
+{
+    config_set_obsidian_vault(path);
+    if (*path) {
+        boveda_sync_all();
+        log_msg("Memoria en Obsidian: %s", path);
+    } else {
+        log_msg("Memoria en Obsidian: sin bóveda.");
+    }
+    refresh_memory(f);
+    set_status(f, *path ? "Listo: Sokari escribe su memoria en tu bóveda, en la carpeta «Sokari»."
+                        : "Listo: su memoria se queda solo en la carpeta de Sokari (tus notas no se borran).");
+}
+
+static void on_pick_vault(GtkButton *b, gpointer u)
+{
+    Form *f = u;
+    GtkFileChooserNative *fc = gtk_file_chooser_native_new("Tu bóveda de Obsidian", GTK_WINDOW(f->dialog),
+                                                           GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Elegir", "Cancelar");
+    wchar_t *found = boveda_detect();
+    if (found) {
+        char *p = wide_to_utf8(found);
+        gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(fc), p);
+        free(p);
+        free(found);
+    }
+    if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(fc)) == GTK_RESPONSE_ACCEPT) {
+        char *dir = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(fc));
+        if (dir) set_vault(f, dir);
+        g_free(dir);
+    }
+    g_object_unref(fc);
+}
+
+static void on_clear_vault(GtkButton *b, gpointer u)
+{
+    set_vault(u, "");
+}
+
+static void on_open_vault(GtkButton *b, gpointer u)
+{
+    wchar_t *dir = boveda_dir();
+    if (dir) open_path(dir);
+    else set_status(u, "No encuentro tu bóveda: elígela otra vez.");
+    free(dir);
+}
+
+static void on_forget_forever(GtkButton *b, gpointer u)
+{
+    Form *f = u;
+    GtkWidget *m = gtk_message_dialog_new(GTK_WINDOW(f->dialog), GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION,
+                                          GTK_BUTTONS_YES_NO, "¿Soltar sus gustos para siempre?");
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(m), "Vuelven a ser gustos normales: podrá cambiar de "
+                                                                    "opinión sobre ellos. No se borra ninguno.");
+    int r = gtk_dialog_run(GTK_DIALOG(m));
+    gtk_widget_destroy(m);
+    if (r != GTK_RESPONSE_YES) return;
+    int n = gustos_soltar_para_siempre();
+    refresh_memory(f);
+    set_status(f, n ? "Listo: ya no tiene gustos para siempre." : "No tenía gustos para siempre.");
+}
+
+static GtkWidget *page_memory(Form *f, const AppConfig *cfg)
+{
+    GtkWidget *g = page_grid();
+    int r = 0;
+    add_wide(g, r++, text_label("Memoria en Obsidian"));
+    add_wide(g, r++, help_label("Elige tu bóveda: Sokari escribe ahí, en la carpeta «Sokari», lo que sabe de ti, sus "
+                                "gustos, tus pendientes y su música, como notas. Si editas una nota, lo que diga manda "
+                                "(antes guarda un respaldo en su carpeta). Sin bóveda, todo se queda en la carpeta de "
+                                "Sokari."));
+    f->vault = add_wide(g, r++, text_label(""));
+    GtkWidget *row = button_row();
+    add_button(row, "Elegir bóveda…", G_CALLBACK(on_pick_vault), f);
+    f->vault_buttons = button_row();
+    add_button(f->vault_buttons, "Abrir sus notas", G_CALLBACK(on_open_vault), f);
+    add_button(f->vault_buttons, "No usar Obsidian", G_CALLBACK(on_clear_vault), f);
+    gtk_box_pack_start(GTK_BOX(row), f->vault_buttons, FALSE, FALSE, 0);
+    gtk_widget_set_no_show_all(f->vault_buttons, TRUE);
+    add_wide(g, r++, row);
+    GtkWidget *title = add_wide(g, r++, text_label("Sus gustos"));
+    gtk_widget_set_margin_top(title, 12);
+    f->gustos = add_wide(g, r++, text_label(""));
+    add_wide(g, r++, help_label("Algunos son para siempre, parte de quién es: los decide ella o se vuelven así cuando "
+                                "siente lo mismo en 3 días distintos. Son 10 a lo más y no cambian aunque le insistas."));
+    row = button_row();
+    f->forever = add_button(row, "Soltar sus gustos para siempre…", G_CALLBACK(on_forget_forever), f);
+    gtk_widget_set_no_show_all(f->forever, TRUE);
+    add_wide(g, r++, row);
+    refresh_memory(f);
+    return g;
+}
+
 /* ------------------------------------------------------------- Skills --- */
 
 static char *skills_text(void)
@@ -1153,7 +1274,7 @@ void settings_linux_open(GtkWindow *parent, bool first_run, SettingsPage page)
 
     AppConfig cfg = config_snapshot();
     GtkWidget *(*const build[SET_PAGES])(Form *, const AppConfig *) = {
-        page_account, page_display, page_audio, page_general, page_skills, page_devices, page_ai};
+        page_account, page_display, page_audio, page_general, page_memory, page_skills, page_devices, page_ai};
     for (int i = 0; i < SET_PAGES; i++) {
         GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
         gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);

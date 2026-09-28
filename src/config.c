@@ -109,6 +109,7 @@ static void defaults(AppConfig *c)
     c->ai_order = xstrdup(DEFAULT_AI_ORDER);
     c->skills_off = xstrdup("");
     c->city = xstrdup("");
+    c->obsidian = xstrdup("");
     c->display_mode = DISPLAY_WINDOWED_BORDERLESS; /* la esfera flotante */
     c->resolution = 0;
     c->volume = 100;
@@ -148,6 +149,7 @@ static void apply_kv(AppConfig *c, const char *key, const char *value)
     else if (!strcmp(key, "SOKARI_AI_ORDER")) set_str(&c->ai_order, *value ? value : DEFAULT_AI_ORDER);
     else if (!strcmp(key, "SOKARI_SKILLS_OFF")) set_str(&c->skills_off, value);
     else if (!strcmp(key, "SOKARI_CITY")) set_str(&c->city, value);
+    else if (!strcmp(key, "SOKARI_OBSIDIAN")) set_str(&c->obsidian, value);
     else if (!strcmp(key, "SOKARI_DISPLAY_MODE")) {
         for (int i = 0; i < DISPLAY_MODE_COUNT; i++)
             if (!strcmp(value, DISPLAY_KEYS[i])) c->display_mode = i;
@@ -278,6 +280,7 @@ static bool save_locked(void)
     put_kv(&sb, "SOKARI_AI_ORDER", g_cfg.ai_order);
     put_kv(&sb, "SOKARI_SKILLS_OFF", g_cfg.skills_off);
     put_kv(&sb, "SOKARI_CITY", g_cfg.city);
+    put_kv(&sb, "SOKARI_OBSIDIAN", g_cfg.obsidian);
     put_kv(&sb, "SOKARI_DISPLAY_MODE", display_mode_key(g_cfg.display_mode));
     sb_appendf(&sb, "SOKARI_RESOLUTION=%d\n", g_cfg.resolution);
     sb_appendf(&sb, "SOKARI_VOLUME=%d\n", g_cfg.volume);
@@ -332,6 +335,7 @@ static void copy_cfg(AppConfig *dst, const AppConfig *src)
     dst->ai_order = xstrdup(src->ai_order);
     dst->skills_off = xstrdup(src->skills_off);
     dst->city = xstrdup(src->city);
+    dst->obsidian = xstrdup(src->obsidian);
 }
 
 void config_free(AppConfig *c)
@@ -352,6 +356,7 @@ void config_free(AppConfig *c)
     free(c->ai_order);
     free(c->skills_off);
     free(c->city);
+    free(c->obsidian);
     memset(c, 0, sizeof *c);
 }
 
@@ -446,6 +451,23 @@ void config_set_city(const char *city)
     AcquireSRWLockExclusive(&g_lock);
     free(g_cfg.city);
     g_cfg.city = xstrdup(city ? city : "");
+    save_locked();
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
+char *config_obsidian_vault(void)
+{
+    AcquireSRWLockShared(&g_lock);
+    char *r = xstrdup(g_cfg.obsidian ? g_cfg.obsidian : "");
+    ReleaseSRWLockShared(&g_lock);
+    return r;
+}
+
+void config_set_obsidian_vault(const char *path)
+{
+    AcquireSRWLockExclusive(&g_lock);
+    free(g_cfg.obsidian);
+    g_cfg.obsidian = xstrdup(path ? path : "");
     save_locked();
     ReleaseSRWLockExclusive(&g_lock);
 }

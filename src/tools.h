@@ -85,6 +85,9 @@ char *tool_borrar_memoria_reciente(const cJSON *a);
 char *tool_identificarse(const cJSON *a);
 char *tool_proteger_perfil(const cJSON *a);
 char *tool_exportar_a_obsidian(const cJSON *a);
+/* Tus datos (hechos.json, el perfil de ahora): trae lo que cambiaste en su
+   nota de Obsidian y la reescribe. */
+void memory_facts_sync(void);
 char *tool_crear_recordatorio(const cJSON *a);
 char *tool_create_macro(const cJSON *a);
 char *tool_run_macro(const cJSON *a);

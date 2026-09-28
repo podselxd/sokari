@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "boveda.h"
 #include "config.h"
 #include "http.h"
 #include "log.h"
@@ -51,6 +52,16 @@ static wchar_t *music_path(void)
     return path_join(g_paths.memory_dir, L"musica.json");
 }
 
+static void save(const cJSON *j)
+{
+    char *t = cJSON_Print(j);
+    wchar_t *p = music_path();
+    write_file_atomic(p, t, strlen(t));
+    free(p);
+    free(t);
+    boveda_push(BOVEDA_MUSICA, NULL, j);
+}
+
 static cJSON *load(void)
 {
     wchar_t *p = music_path();
@@ -72,16 +83,9 @@ static cJSON *load(void)
         cJSON_DeleteItemFromObject(j, "playlists");
         cJSON_AddObjectToObject(j, "playlists");
     }
+    /* Si editaste su nota en Obsidian, lo que diga manda. */
+    if (boveda_pull(BOVEDA_MUSICA, NULL, j)) save(j);
     return j;
-}
-
-static void save(const cJSON *j)
-{
-    char *t = cJSON_Print(j);
-    wchar_t *p = music_path();
-    write_file_atomic(p, t, strlen(t));
-    free(p);
-    free(t);
 }
 
 static cJSON *station(const char *name, const char *url)
@@ -264,4 +268,13 @@ char *tool_radio(const cJSON *a)
     cJSON_Delete(music);
     ReleaseSRWLockExclusive(&g_lock);
     return r;
+}
+
+void radio_sync(void)
+{
+    AcquireSRWLockExclusive(&g_lock);
+    cJSON *j = load();
+    save(j);
+    cJSON_Delete(j);
+    ReleaseSRWLockExclusive(&g_lock);
 }

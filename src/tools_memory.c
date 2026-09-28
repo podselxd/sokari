@@ -5,6 +5,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "boveda.h"
+#include "config.h"
 #include "log.h"
 #include "memory.h"
 #include "tools.h"
@@ -31,6 +33,41 @@ static cJSON *profile_facts(cJSON *all, bool create)
     return f;
 }
 
+/* Guarda hechos.json y reescribe la nota de tus datos (si elegiste bóveda). */
+static bool facts_save(const cJSON *all, const cJSON *facts)
+{
+    wchar_t *ff = memory_file(L"hechos.json");
+    bool ok = json_save(ff, all);
+    free(ff);
+    char *who = profile_display_name(current_speaker());
+    boveda_push(BOVEDA_DATOS, who, facts);
+    free(who);
+    return ok;
+}
+
+/* Tus datos (los del perfil de ahora) en *all; lo que cambiaste en su nota de
+   Obsidian manda. */
+static cJSON *facts_load(cJSON **all)
+{
+    wchar_t *ff = memory_file(L"hechos.json");
+    *all = json_load_object(ff);
+    free(ff);
+    cJSON *facts = profile_facts(*all, true);
+    char *who = profile_display_name(current_speaker());
+    if (boveda_pull(BOVEDA_DATOS, who, facts)) facts_save(*all, facts);
+    free(who);
+    return facts;
+}
+
+void memory_facts_sync(void)
+{
+    if (!state_try_lock(2000)) return;
+    cJSON *all, *facts = facts_load(&all);
+    facts_save(all, facts);
+    cJSON_Delete(all);
+    state_unlock();
+}
+
 char *tool_guardar_dato(const cJSON *a)
 {
     char *clave = str_trim(arg_str(a, "clave"));
@@ -40,15 +77,12 @@ char *tool_guardar_dato(const cJSON *a)
         return xstrdup("No entendí qué dato guardar.");
     }
     char *norm = str_lower(clave);
-    wchar_t *ff = memory_file(L"hechos.json");
-    cJSON *all = json_load_object(ff);
-    cJSON *facts = profile_facts(all, true);
+    cJSON *all, *facts = facts_load(&all);
     bool existed = cJSON_GetObjectItem(facts, norm) != NULL;
     cJSON_DeleteItemFromObject(facts, norm);
     cJSON_AddStringToObject(facts, norm, valor);
-    json_save(ff, all);
+    facts_save(all, facts);
     cJSON_Delete(all);
-    free(ff);
     char *r = str_printf("Listo, %s '%s': %s.", existed ? "actualicé" : "guardé", clave, valor);
     free(norm);
     free(clave);
@@ -79,10 +113,7 @@ char *tool_borrar_memoria_reciente(const cJSON *a)
 char *tool_recordar(const cJSON *a)
 {
     char *q = str_lower(arg_str(a, "query"));
-    wchar_t *ff = memory_file(L"hechos.json");
-    cJSON *all = json_load_object(ff);
-    free(ff);
-    cJSON *facts = profile_facts(all, false);
+    cJSON *all, *facts = facts_load(&all);
     StrBuf sb;
     sb_init(&sb);
     cJSON *f;
@@ -279,30 +310,15 @@ static char *capitalize(const char *s)
     return r;
 }
 
+/* La bóveda que elegiste en Configuración; si no, la de Obsidian en esta PC. */
 static wchar_t *find_obsidian_vault(void)
 {
-    wchar_t *cfg = expand_env(L"%APPDATA%\\obsidian\\obsidian.json");
-    cJSON *c = json_load_object(cfg);
-    free(cfg);
-    cJSON *vaults = cJSON_GetObjectItem(c, "vaults");
-    wchar_t *found = NULL;
-    for (int pass = 0; pass < 2 && !found; pass++) {
-        cJSON *v;
-        cJSON_ArrayForEach(v, vaults)
-        {
-            bool open = cJSON_IsTrue(cJSON_GetObjectItem(v, "open"));
-            cJSON *path = cJSON_GetObjectItem(v, "path");
-            if ((pass == 0) != open || !cJSON_IsString(path)) continue;
-            wchar_t *w = utf8_to_wide(path->valuestring);
-            if (dir_exists(w)) {
-                found = w;
-                break;
-            }
-            free(w);
-        }
-    }
-    cJSON_Delete(c);
-    return found;
+    char *mine = config_obsidian_vault();
+    wchar_t *w = *mine ? utf8_to_wide(mine) : NULL;
+    free(mine);
+    if (w && dir_exists(w)) return w;
+    free(w);
+    return boveda_detect();
 }
 
 static bool write_text(const wchar_t *dir, const char *name, const char *content)
@@ -329,10 +345,7 @@ char *tool_exportar_a_obsidian(const cJSON *a)
     wchar_t *pdir = path_join(jdir, wperson);
     wchar_t *ddir = path_join(pdir, L"Datos");
 
-    wchar_t *ff = memory_file(L"hechos.json");
-    cJSON *all = json_load_object(ff);
-    free(ff);
-    cJSON *facts = profile_facts(all, false);
+    cJSON *all, *facts = facts_load(&all);
     char *r;
     if (!facts || !cJSON_GetArraySize(facts)) {
         r = str_printf("%s todavía no tiene datos guardados para exportar.", display);
