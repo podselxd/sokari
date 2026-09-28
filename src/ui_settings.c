@@ -8,6 +8,7 @@
 #include <commdlg.h>
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <shobjidl.h>
 #include <uxtheme.h>
 #include <math.h>
 #include <stdio.h>
@@ -16,7 +17,9 @@
 
 #include "audio.h"
 #include "autostart.h"
+#include "boveda.h"
 #include "config.h"
+#include "gustos.h"
 #include "log.h"
 #include "memory.h"
 #include "mesh.h"
@@ -45,9 +48,9 @@
 #define C_NAV_SEL RGB(0x28, 0x26, 0x3a)
 #define C_LINK RGB(0x9d, 0x92, 0xff)
 
-enum { SEC_HOME, SEC_ACCOUNT, SEC_DISPLAY, SEC_AUDIO, SEC_GENERAL, SEC_SKILLS, SEC_DEVICES, SEC_AI, SEC_COUNT };
-static const wchar_t *SECTION_NAMES[SEC_COUNT] = {L"Inicio",  L"Cuenta", L"Pantalla",     L"Voz y audio",
-                                                  L"General", L"Skills", L"Dispositivos", L"IA de respaldo"};
+enum { SEC_HOME, SEC_ACCOUNT, SEC_DISPLAY, SEC_AUDIO, SEC_GENERAL, SEC_MEMORY, SEC_SKILLS, SEC_DEVICES, SEC_AI, SEC_COUNT };
+static const wchar_t *SECTION_NAMES[SEC_COUNT] = {L"Inicio",  L"Cuenta",  L"Pantalla", L"Voz y audio",   L"General",
+                                                  L"Memoria", L"Skills", L"Dispositivos", L"IA de respaldo"};
 
 typedef enum {
     W_LABEL,
@@ -72,7 +75,8 @@ enum {
     A_NONE, A_GROQ_LINK, A_RESET_PW, A_SHOW_API, A_SHOW_STOP, A_TAILSCALE, A_COPY_SECRET, A_OBSIDIAN, A_PICK_SOUND,
     A_CLEAR_SOUND, A_OPEN_FOLDER, A_CHECK_UPDATE, A_SAVE, A_CANCEL, A_START, A_GO_SETTINGS, A_MUTE, A_TEST_AUDIO,
     A_QUIT, A_MODE_CHANGED, A_OUTPUT_CHANGED, A_TEST_VOICE, A_FIREWALL, A_DETECT, A_DIAGNOSE, A_FULL_ACCESS,
-    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM, A_STYLE, A_UNINSTALL, A_RELAYOUT,
+    A_SHOW_MESH, A_OPEN_SKILLS, A_NEW_SKILL, A_TEST_ANIM, A_STYLE, A_UNINSTALL, A_RELAYOUT, A_PICK_VAULT,
+    A_CLEAR_VAULT, A_OPEN_VAULT, A_FORGET_FOREVER,
     /* Por dispositivo de la lista: + su número. */
     A_DEV_PROBE = 200, A_DEV_REMOVE = 300,
     /* Por IA de respaldo (0 NVIDIA, 1 DeepSeek, 2 OpenRouter, 3 GLM): ver la key y dónde sacarla. */
@@ -478,6 +482,9 @@ static const char *output_name_at(int index)
 static wchar_t g_tailscale_text[320];
 static wchar_t g_sound_text[160];
 static wchar_t g_skills_text[600]; /* la sección Skills: cuáles tuyas hay */
+static wchar_t g_vault_text[400];  /* la sección Memoria: tu bóveda */
+static wchar_t g_gustos_text[900]; /* y sus gustos */
+static bool g_has_vault, g_has_forever;
 static wchar_t g_home_title[96];
 static wchar_t g_home_text[200];
 
@@ -630,18 +637,8 @@ static void layout(void)
         layout_button(x, y, dp(170), L"Elegir archivo…", A_PICK_SOUND, false);
         layout_button(x + dp(182), y, dp(150), L"Usar el de Sokari", A_CLEAR_SOUND, false);
         y += dp(50);
-        {
-            wchar_t *ob = expand_env(L"%LOCALAPPDATA%\\Programs\\obsidian\\Obsidian.exe");
-            if (!file_exists(ob)) {
-                layout_button(x, y, dp(170), L"Instalar Obsidian", A_OBSIDIAN, false);
-                layout_button(x + dp(182), y, dp(210), L"Abrir carpeta de Sokari", A_OPEN_FOLDER, false);
-            } else {
-                layout_button(x, y, dp(210), L"Abrir carpeta de Sokari", A_OPEN_FOLDER, false);
-            }
-            free(ob);
-            y += dp(50);
-        }
-        layout_button(x, y, dp(190), L"Desinstalar Sokari…", A_UNINSTALL, false);
+        layout_button(x, y, dp(210), L"Abrir carpeta de Sokari", A_OPEN_FOLDER, false);
+        layout_button(x + dp(222), y, dp(190), L"Desinstalar Sokari…", A_UNINSTALL, false);
         y += dp(50);
         y = layout_toggle(x, y, w, &S.desk_move, L"¿Puede Sokari moverse por el escritorio? (esfera flotante)");
         if (S.desk_move) {
@@ -656,6 +653,37 @@ static void layout(void)
                         L"instrucciones escondidas, podría obedecerlas sin avisarte. Apagado, pregunta antes de "
                         L"acciones delicadas cuando leyó algo de afuera.");
         break;
+    case SEC_MEMORY: {
+        y = layout_label(x, y, w, L"Memoria en Obsidian");
+        y = layout_help(x, y - dp(4), w,
+                        L"Elige tu bóveda: Sokari escribe ahí, en la carpeta «Sokari», lo que sabe de ti, sus gustos, "
+                        L"tus pendientes y su música, como notas. Si editas una nota, lo que diga manda (antes guarda "
+                        L"un respaldo en su carpeta). Sin bóveda, todo se queda en la carpeta de Sokari.") +
+            dp(2);
+        y = layout_help(x, y, w, g_vault_text);
+        layout_button(x, y, dp(170), L"Elegir bóveda…", A_PICK_VAULT, false);
+        if (g_has_vault) {
+            layout_button(x + dp(182), y, dp(150), L"Abrir sus notas", A_OPEN_VAULT, false);
+            layout_button(x + dp(344), y, dp(170), L"No usar Obsidian", A_CLEAR_VAULT, false);
+        }
+        y += dp(50);
+        wchar_t *ob = expand_env(L"%LOCALAPPDATA%\\Programs\\obsidian\\Obsidian.exe");
+        if (!file_exists(ob)) {
+            layout_button(x, y, dp(170), L"Instalar Obsidian", A_OBSIDIAN, false);
+            y += dp(50);
+        }
+        free(ob);
+        y = layout_label(x, y + dp(6), w, L"Sus gustos");
+        y = layout_help(x, y - dp(4), w, g_gustos_text) + dp(2);
+        y = layout_help(x, y, w,
+                        L"Algunos son para siempre, parte de quién es: los decide ella o se vuelven así cuando siente "
+                        L"lo mismo en 3 días distintos. Son 10 a lo más y no cambian aunque le insistas.");
+        if (g_has_forever) {
+            layout_button(x, y, dp(290), L"Soltar sus gustos para siempre…", A_FORGET_FOREVER, false);
+            y += dp(50);
+        }
+        break;
+    }
     case SEC_SKILLS: {
         y = layout_help(x, y - dp(6), w,
                         L"Contestan en tu PC, sin gastar nada de IA (0 tokens): «¿qué hora es?», «pon un temporizador "
@@ -1033,6 +1061,68 @@ static void refresh_skills_text(void)
     free(names);
 }
 
+static void copy_wide(wchar_t *dst, size_t cap, const char *utf8)
+{
+    wchar_t *w = utf8_to_wide(utf8);
+    wcsncpy(dst, w, cap - 1);
+    dst[cap - 1] = 0;
+    free(w);
+}
+
+/* La sección Memoria: tu bóveda y sus gustos. */
+static void refresh_memory_text(void)
+{
+    char *v = config_obsidian_vault();
+    wchar_t *dir = *v ? boveda_dir() : NULL;
+    g_has_vault = *v != 0;
+    char *t = !*v ? xstrdup("Sin bóveda: su memoria se queda en la carpeta de Sokari.")
+              : dir ? str_printf("Tu bóveda: %s", v)
+                    : str_printf("Tu bóveda: %s (no la encuentro; mientras, su memoria sigue en la carpeta de Sokari).", v);
+    copy_wide(g_vault_text, sizeof g_vault_text / sizeof *g_vault_text, t);
+    free(t);
+    free(dir);
+    free(v);
+    char *g = gustos_describe();
+    g_has_forever = gustos_count_para_siempre() > 0;
+    /* Con muchos gustos, lo primero (los de para siempre van antes): que quepa arriba de Guardar. */
+    if (g && strlen(g) > 320) {
+        size_t n = utf8_truncate_len(g, 320);
+        char *cut = str_printf("%.*s…", (int)n, g);
+        free(g);
+        g = cut;
+    }
+    copy_wide(g_gustos_text, sizeof g_gustos_text / sizeof *g_gustos_text,
+              g ? g : "Todavía no tiene gustos: los va formando con lo que viven juntos.");
+    free(g);
+}
+
+/* Una carpeta, con el diálogo de Windows (NULL si cancelas). */
+static wchar_t *pick_folder(const wchar_t *title)
+{
+    HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    IFileOpenDialog *d = NULL;
+    wchar_t *r = NULL;
+    if (SUCCEEDED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog,
+                                   (void **)&d))) {
+        DWORD opt = 0;
+        d->lpVtbl->GetOptions(d, &opt);
+        d->lpVtbl->SetOptions(d, opt | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+        d->lpVtbl->SetTitle(d, title);
+        IShellItem *it = NULL;
+        if (SUCCEEDED(d->lpVtbl->Show(d, S.hwnd)) && SUCCEEDED(d->lpVtbl->GetResult(d, &it))) {
+            wchar_t *p = NULL;
+            if (SUCCEEDED(it->lpVtbl->GetDisplayName(it, SIGDN_FILESYSPATH, &p)) && p) {
+                r = xwcsdup(p);
+                CoTaskMemFree(p);
+            }
+            it->lpVtbl->Release(it);
+        }
+        d->lpVtbl->Release(d);
+    }
+    if (SUCCEEDED(init)) CoUninitialize();
+    return r;
+}
+
 static void load_values(void)
 {
     config_free(&S.cfg);
@@ -1108,6 +1198,7 @@ static void load_values(void)
     build_labels();
     refresh_tailscale_text();
     refresh_sound_text();
+    refresh_memory_text();
 }
 
 /* "NVIDIA, groq" -> "nvidia,groq"; lo que no sea un proveedor conocido se
@@ -1364,6 +1455,45 @@ static void clear_sound(void)
     layout();
 }
 
+/* Memoria en Obsidian: se guarda al momento y escribe ya sus notas. */
+static void set_vault(const char *path)
+{
+    config_set_obsidian_vault(path);
+    if (*path) {
+        boveda_sync_all();
+        log_msg("Memoria en Obsidian: %s", path);
+    } else {
+        log_msg("Memoria en Obsidian: sin bóveda.");
+    }
+    refresh_memory_text();
+    set_status(*path ? L"Listo: Sokari escribe su memoria en tu bóveda, en la carpeta «Sokari»."
+                     : L"Listo: su memoria se queda solo en la carpeta de Sokari (tus notas no se borran).");
+    layout();
+}
+
+static void pick_vault(void)
+{
+    wchar_t *dir = pick_folder(L"Tu bóveda de Obsidian");
+    if (!dir) return;
+    char *u = wide_to_utf8(dir);
+    set_vault(u);
+    free(u);
+    free(dir);
+}
+
+static void forget_forever(void)
+{
+    if (MessageBoxW(S.hwnd,
+                    L"Sus gustos para siempre vuelven a ser gustos normales: podrá cambiar de opinión sobre ellos. "
+                    L"No se borra ninguno.\n\n¿Seguro?",
+                    L"Sokari", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES)
+        return;
+    int n = gustos_soltar_para_siempre();
+    refresh_memory_text();
+    set_status(n ? L"Listo: ya no tiene gustos para siempre." : L"No tenía gustos para siempre.");
+    layout();
+}
+
 static bool copy_text(const wchar_t *w)
 {
     size_t bytes = (wcslen(w) + 1) * sizeof(wchar_t);
@@ -1490,6 +1620,22 @@ static void do_action(int action)
         break;
     case A_PICK_SOUND:
         pick_sound();
+        break;
+    case A_PICK_VAULT:
+        pick_vault();
+        break;
+    case A_CLEAR_VAULT:
+        set_vault("");
+        break;
+    case A_OPEN_VAULT: {
+        wchar_t *dir = boveda_dir();
+        if (dir) ShellExecuteW(NULL, L"open", dir, NULL, NULL, SW_SHOWNORMAL);
+        else set_status(L"No encuentro tu bóveda: elígela otra vez.");
+        free(dir);
+        break;
+    }
+    case A_FORGET_FOREVER:
+        forget_forever();
         break;
     case A_CLEAR_SOUND:
         clear_sound();

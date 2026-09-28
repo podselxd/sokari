@@ -12,6 +12,7 @@ typedef enum {
     SET_DISPLAY,
     SET_AUDIO,
     SET_GENERAL,
+    SET_MEMORY,
     SET_SKILLS,
     SET_DEVICES,
     SET_AI,

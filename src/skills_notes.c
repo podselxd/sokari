@@ -7,23 +7,50 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "boveda.h"
 #include "intents.h"
 #include "memory.h"
+#include "skills.h"
 #include "skills_internal.h"
 #include "tools.h"
 #include "util.h"
+
+/* Guarda y reescribe su nota de Obsidian (si elegiste bóveda). */
+static bool save(const wchar_t *path, const cJSON *data, const cJSON *list)
+{
+    bool ok = json_save(path, data);
+    char *who = profile_display_name(current_speaker());
+    boveda_push(BOVEDA_PENDIENTES, who, list);
+    free(who);
+    return ok;
+}
 
 static cJSON *load(wchar_t **path, cJSON **list)
 {
     *path = memory_file(L"notas.json");
     cJSON *data = json_load_object(*path);
-    const char *who = current_speaker();
-    *list = cJSON_GetObjectItem(data, who);
+    const char *key = current_speaker();
+    *list = cJSON_GetObjectItem(data, key);
     if (!cJSON_IsArray(*list)) {
-        cJSON_DeleteItemFromObject(data, who);
-        *list = cJSON_AddArrayToObject(data, who);
+        cJSON_DeleteItemFromObject(data, key);
+        *list = cJSON_AddArrayToObject(data, key);
     }
+    /* Lo que marcaste o agregaste en su nota de Obsidian manda. */
+    char *who = profile_display_name(key);
+    if (boveda_pull(BOVEDA_PENDIENTES, who, *list)) save(*path, data, *list);
+    free(who);
     return data;
+}
+
+void skills_notes_sync(void)
+{
+    if (!state_try_lock(2000)) return;
+    wchar_t *path;
+    cJSON *list, *data = load(&path, &list);
+    save(path, data, list);
+    cJSON_Delete(data);
+    free(path);
+    state_unlock();
 }
 
 /* Lo que queda sin usar, sin relleno en las orillas (heap). */
@@ -135,7 +162,7 @@ char *sk_notes(Heard *h, bool *end)
             const cJSON *t = cJSON_GetObjectItem(cJSON_GetArrayItem(list, i), "texto");
             r = str_printf("Listo, taché «%s».", cJSON_IsString(t) ? t->valuestring : what);
             cJSON_DeleteItemFromArray(list, i);
-            json_save(path, data);
+            save(path, data, list);
         }
         cJSON_Delete(data);
         free(path);
@@ -164,7 +191,7 @@ char *sk_notes(Heard *h, bool *end)
     cJSON_AddStringToObject(it, "texto", what);
     cJSON_AddNumberToObject(it, "creado", (double)sk_now());
     cJSON_AddItemToArray(list, it);
-    bool ok = json_save(path, data);
+    bool ok = save(path, data, list);
     cJSON_Delete(data);
     free(path);
     char *r = ok ? str_printf("Anotado: %s.", what) : xstrdup("No pude guardar la nota.");
