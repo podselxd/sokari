@@ -14,7 +14,7 @@ LIBS := $(shell pkg-config --libs $(PKGS)) -lm -lpthread
 # Del código compartido con Windows, lo que no depende del sistema. Lo propio
 # de Linux está en src/linux/ (y src/linux/include/windows.h da los hilos y
 # candados con la misma forma que en Windows).
-SHARED := aec affect agent audio_common desk pantalla face calc config eco fft github groq http_common intents keys log memory mesh mesh_devices prosody sounds_common sphere style_preview \
+SHARED := aec affect agent audio_common desk gustos lector pantalla radio face calc config eco fft github groq http_common intents keys log memory mesh mesh_devices prosody sounds_common sphere style_preview \
           skills skills_calc skills_notes skills_timers skills_user skills_weather \
           tool_policy tools tools_common tools_memory tools_web tts_common util vad vibe voice wakeword nn_generic nn_avx2
 # Detector de voz de WebRTC (C puro, licencia BSD): ver src/third_party/webrtc_vad.

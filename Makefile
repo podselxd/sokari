@@ -9,7 +9,7 @@ CFLAGS := -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-
           -municode -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0A00 -DNTDDI_VERSION=0x0A000006 \
           -DCOBJMACROS -Isrc -MMD -MP
 LIBS := -lwinhttp -lole32 -loleaut32 -luuid -lwinmm -lgdi32 -luser32 -lshell32 -lshlwapi \
-        -lcomctl32 -ldwmapi -lws2_32 -liphlpapi -lbcrypt -ladvapi32 -lcomdlg32 -luxtheme -lpowrprof -lm
+        -lcomctl32 -ldwmapi -lws2_32 -liphlpapi -lbcrypt -ladvapi32 -lcomdlg32 -luxtheme -lpowrprof -lmfplay -lmfplat -lm
 
 # Detector de voz de WebRTC (C puro, licencia BSD): ver src/third_party/webrtc_vad.
 VAD_SRC := $(wildcard src/third_party/webrtc_vad/webrtc/common_audio/vad/*.c) \
