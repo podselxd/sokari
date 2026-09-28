@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <wchar.h>
 
-#define SOKARI_VERSION "2.7.3"
-#define SOKARI_VERSION_W L"2.7.3"
+#define SOKARI_VERSION "2.8.0"
+#define SOKARI_VERSION_W L"2.8.0"
 #define GITHUB_REPO "podselxd/sokari"
 
 typedef enum {

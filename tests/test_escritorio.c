@@ -9,9 +9,11 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "desk.h"
+#include "pantalla.h"
 
 static int g_fail, g_total;
 
@@ -211,6 +213,16 @@ int wmain(void)
     int moves = 0;
     for (int i = 0; i < 900; i++) moves += desk_step(&w, &v, 1.0 / 30, true, &st);
     check(moves == 0, "con la ventana activa maximizada no se mete encima: se queda quieta");
+
+    /* La captura va a la IA en JPEG y a lo más de 1280 de ancho (menos cupo). */
+    int cw = 2560, ch = 1440, ow = 0, oh = 0;
+    unsigned char *rgb = malloc((size_t)cw * ch * 3);
+    for (int i = 0; i < cw * ch * 3; i++) rgb[i] = (unsigned char)(i * 7 % 251);
+    char *b64 = screen_jpeg_base64(rgb, cw, ch, &ow, &oh);
+    free(rgb);
+    check(b64 && !strncmp(b64, "/9j/", 4) && ow == 1280 && oh == 720,
+          "la captura de 2560x1440 va como JPEG de 1280x720");
+    free(b64);
 
     printf("\n%d/%d pruebas pasaron\n", g_total - g_fail, g_total);
     return g_fail ? 1 : 0;

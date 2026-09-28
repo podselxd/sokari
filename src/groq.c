@@ -688,3 +688,90 @@ cJSON *groq_chat(const cJSON *messages, const cJSON *tools, GroqError *err)
     }
     return NULL;
 }
+
+/* ---------------------------------------------------------- con visión --- */
+
+/* Los que ven imágenes, del mejor al más flojo (nombres de hoy; si uno ya no
+   existe, el proveedor contesta 404 y se prueba el siguiente). */
+static const struct {
+    int p;
+    const char *id;
+} VISION[] = {
+    {P_GROQ, "meta-llama/llama-4-scout-17b-16e-instruct"},
+    {P_GROQ, "meta-llama/llama-4-maverick-17b-128e-instruct"},
+    {P_OPENROUTER, "meta-llama/llama-4-scout:free"},
+    {P_OPENROUTER, "qwen/qwen2.5-vl-72b-instruct:free"},
+    {P_NVIDIA, "meta/llama-4-scout-17b-16e-instruct"},
+    {P_NVIDIA, "meta/llama-3.2-90b-vision-instruct"},
+    {P_GLM, "glm-4v-flash"},
+};
+
+char *groq_vision(const char *prompt, const char *jpeg_b64, int *tokens, GroqError *err)
+{
+    if (tokens) *tokens = 0;
+    bool any_key = false;
+    char *answer = NULL;
+    for (size_t i = 0; i < sizeof VISION / sizeof *VISION && !answer; i++) {
+        int p = VISION[i].p;
+        char *key = provider_key(p);
+        if (!key || !*key) {
+            free(key);
+            continue;
+        }
+        any_key = true;
+        cJSON *req = cJSON_CreateObject();
+        cJSON_AddStringToObject(req, "model", VISION[i].id);
+        cJSON *msgs = cJSON_AddArrayToObject(req, "messages");
+        cJSON *m = cJSON_CreateObject();
+        cJSON_AddStringToObject(m, "role", "user");
+        cJSON *content = cJSON_AddArrayToObject(m, "content");
+        cJSON *t = cJSON_CreateObject();
+        cJSON_AddStringToObject(t, "type", "text");
+        cJSON_AddStringToObject(t, "text", prompt);
+        cJSON_AddItemToArray(content, t);
+        cJSON *img = cJSON_CreateObject();
+        cJSON_AddStringToObject(img, "type", "image_url");
+        cJSON *url = cJSON_AddObjectToObject(img, "image_url");
+        char *data = str_printf("data:image/jpeg;base64,%s", jpeg_b64);
+        cJSON_AddStringToObject(url, "url", data);
+        free(data);
+        cJSON_AddItemToArray(content, img);
+        cJSON_AddItemToArray(msgs, m);
+        cJSON_AddNumberToObject(req, p == P_GROQ ? "max_completion_tokens" : "max_tokens", 400);
+        char *payload = cJSON_PrintUnformatted(req);
+        cJSON_Delete(req);
+        char *headers = str_printf("Authorization: Bearer %s\r\nContent-Type: application/json\r\n%s", key,
+                                   p == P_OPENROUTER ? "X-Title: Sokari\r\n" : "");
+        SecureZeroMemory(key, strlen(key));
+        free(key);
+        char *u = str_printf("%s/chat/completions", provider_base(p));
+        HttpRequest hr = {.method = "POST", .url = u, .headers = headers, .body = payload,
+                          .body_len = strlen(payload), .timeout_ms = 60000};
+        HttpResponse r = http_request(&hr);
+        SecureZeroMemory(headers, strlen(headers));
+        free(headers);
+        free(payload);
+        free(u);
+        if (classify(&r) == GROQ_OK) {
+            cJSON *j = cJSON_Parse(r.body);
+            cJSON *choices = j ? cJSON_GetObjectItem(j, "choices") : NULL;
+            cJSON *first = cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
+            cJSON *msg = first ? cJSON_GetObjectItem(first, "message") : NULL;
+            const char *c = cJSON_GetStringValue(msg ? cJSON_GetObjectItem(msg, "content") : NULL);
+            if (c && *c) answer = xstrdup(c);
+            cJSON *pt = cJSON_GetObjectItem(cJSON_GetObjectItem(j, "usage"), "prompt_tokens");
+            if (tokens && cJSON_IsNumber(pt)) *tokens = pt->valueint;
+            if (answer) log_msg("%s (%s) vio la pantalla: %d tokens de entrada.", PROVIDERS[p].name, VISION[i].id,
+                                cJSON_IsNumber(pt) ? pt->valueint : -1);
+            cJSON_Delete(j);
+        } else {
+            char *detail = error_detail(&r);
+            log_msg("%s (%s) con imagen, HTTP %d: %s", PROVIDERS[p].name, VISION[i].id, r.status, detail);
+            set_error(err, classify(&r), &r, detail);
+            free(detail);
+        }
+        http_response_free(&r);
+    }
+    if (!answer && !any_key) set_error(err, GROQ_BAD_RESPONSE, NULL, "sin-vision");
+    return answer;
+}

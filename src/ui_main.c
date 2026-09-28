@@ -37,6 +37,8 @@
 #define WM_APP_LEFT (WM_APP + 10)
 /* El botón Probar de la animación (wParam: cuál). */
 #define WM_APP_ANIMTEST (WM_APP + 11)
+/* Mientras toma una captura, las ventanas de Sokari no salen en ella. */
+#define WM_APP_CAPTURE (WM_APP + 12)
 #define TIMER_AUTOHIDE 1
 #define AUTOHIDE_MS 1500
 #define SUBTITLE_SECONDS 8.0
@@ -1072,6 +1074,16 @@ static LRESULT CALLBACK msg_proc(HWND h, UINT m, WPARAM w, LPARAM l)
         if ((LONG)w == U.leave_seq && InterlockedCompareExchange(&U.leaving, 0, 1) == 1 && U.hud)
             ShowWindow(U.hud, SW_HIDE);
         return 0;
+    case WM_APP_CAPTURE: {
+        /* 0x11 = WDA_EXCLUDEFROMCAPTURE (Windows 10 2004 en adelante). */
+        DWORD pid = GetCurrentProcessId();
+        for (HWND x = GetTopWindow(NULL); x; x = GetWindow(x, GW_HWNDNEXT)) {
+            DWORD wp = 0;
+            GetWindowThreadProcessId(x, &wp);
+            if (wp == pid && IsWindowVisible(x)) SetWindowDisplayAffinity(x, w ? 0x11 : WDA_NONE);
+        }
+        return 0;
+    }
     case WM_APP_ANIMTEST: {
         /* Probar (Configuración): con la animación elegida, aunque no esté
            guardada todavía. En pantalla: sale y vuelve. Oculta: se asoma y
@@ -1166,4 +1178,12 @@ int ui_run(void)
         DispatchMessageW(&m);
     }
     return (int)m.wParam;
+}
+
+void ui_capture_exclude(bool on)
+{
+    if (!U.msg) return;
+    DWORD_PTR res;
+    SendMessageTimeoutW(U.msg, WM_APP_CAPTURE, on, 0, SMTO_BLOCK, 2000, &res);
+    Sleep(on ? 80 : 0); /* que el escritorio ya la dibuje sin ella */
 }

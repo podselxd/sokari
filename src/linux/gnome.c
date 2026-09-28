@@ -403,3 +403,16 @@ GnomeStatus gnome_desk(DeskView *v)
     cJSON_Delete(j);
     return v->nmon ? GN_OK : GN_ERROR;
 }
+
+GnomeStatus gnome_screenshot(const char *png_path, bool *ok)
+{
+    GVariant *r;
+    GnomeStatus st = call("Screenshot", g_variant_new("(s)", png_path), "(b)", 10000, &r);
+    gboolean b = FALSE;
+    if (r) {
+        g_variant_get(r, "(b)", &b);
+        g_variant_unref(r);
+    }
+    if (ok) *ok = b;
+    return st;
+}

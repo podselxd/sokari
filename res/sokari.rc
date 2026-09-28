@@ -12,8 +12,8 @@ IDR_HEY_SOKARI RCDATA "hey_sokari.jww"
 #endif
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 2,7,3,0
-PRODUCTVERSION 2,7,3,0
+FILEVERSION 2,8,0,0
+PRODUCTVERSION 2,8,0,0
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -23,11 +23,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "podselxd"
             VALUE "FileDescription", "Sokari - asistente de voz"
-            VALUE "FileVersion", "2.7.3"
+            VALUE "FileVersion", "2.8.0"
             VALUE "InternalName", "Sokari"
             VALUE "OriginalFilename", "Sokari.exe"
             VALUE "ProductName", "Sokari"
-            VALUE "ProductVersion", "2.7.3"
+            VALUE "ProductVersion", "2.8.0"
             VALUE "LegalCopyright", "Modelo de wake word: openWakeWord (CC BY-NC-SA 4.0)"
         END
     END

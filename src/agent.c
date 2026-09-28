@@ -491,6 +491,8 @@ static bool must_confirm(const Conversation *c, const char *name, const cJSON *a
        el modelo espera tu sí, aunque tengas acceso completo. Las que pides tú
        ("dale enter") no pasan por aquí. */
     if (!strcmp(name, "presionar_teclas") && history_has_outside_text(c)) return true;
+    /* Ver tu pantalla porque lo pidió algo de afuera (una página), nunca sin tu sí. */
+    if (!strcmp(name, "ver_pantalla") && history_has_outside_text(c)) return true;
     return !config_full_access() && tool_needs_confirmation(name, args) && history_has_outside_text(c);
 }
 
@@ -593,6 +595,7 @@ static const ToolGroup TOOL_GROUPS[] = {
      " archivo archivos carpeta carpetas descargas documento documentos escritorio pdf foto fotos imagen imagenes "
      "mueve muevelo muevela mover borra borralo borrala borrar elimina eliminalo papelera lee leeme txt docx "
      "crea crealo creame hazme guarda guardalo escribe escribeme nota notas texto lista "},
+    {"ver_pantalla", " pantalla monitor ves viendo mira mirar observa checa error ventana captura "},
     {"leer_portapapeles copiar_portapapeles", " portapapeles copia copiado copiaste copie pega pegar pegalo "},
     {"identificarse proteger_perfil", " soy llamo llego perfil contrasena quien habla "},
     {"exportar_a_obsidian", " obsidian notas "},
@@ -683,7 +686,8 @@ static bool is_action_tool(const char *name)
                                       "crear_recordatorio", "run_macro",   "focus_window",     "type_text",
                                       "gestionar_dispositivo", "cambiar_permisos", "mover_archivo", "copiar_portapapeles",
                                       "guardar_dato",   "registrar_dispositivo", "create_macro", "exportar_a_obsidian",
-                                      "borrar_memoria_reciente", "presionar_teclas", "ir_a_pestana", "subir_archivo"};
+                                      "borrar_memoria_reciente", "presionar_teclas", "ir_a_pestana", "subir_archivo",
+                                      "crear_archivo"};
     for (size_t i = 0; i < sizeof ACT / sizeof *ACT; i++)
         if (!strcmp(name, ACT[i])) return true;
     return false;

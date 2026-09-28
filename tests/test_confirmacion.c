@@ -65,6 +65,14 @@ static void script(const char *a, const char *b, const char *c)
     if (c) g_script[g_script_len++] = c;
 }
 
+/* Sin red: la IA con visión no contesta (ver_pantalla no se prueba aquí). */
+char *groq_vision(const char *prompt, const char *jpeg_b64, int *tokens, GroqError *err)
+{
+    (void)prompt, (void)jpeg_b64, (void)err;
+    if (tokens) *tokens = 0;
+    return NULL;
+}
+
 /* Cada paso del guion es "texto" (respuesta final) o "tool:nombre {json}; tool:nombre {json}". */
 cJSON *groq_chat(const cJSON *messages, const cJSON *tools, GroqError *err)
 {

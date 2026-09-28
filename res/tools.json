@@ -586,6 +586,25 @@
   {
     "type": "function",
     "function": {
+      "name": "ver_pantalla",
+      "description": "Toma una captura de la pantalla del usuario y la revisa una IA con visión. Úsala SOLO cuando el usuario pida explícitamente que veas o mires su pantalla (\"¿qué ves en mi pantalla?\", \"mira este error\"). Gasta mucho cupo.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pregunta": {
+            "type": "string",
+            "description": "qué quiere saber de lo que hay en pantalla"
+          }
+        },
+        "required": [
+          "pregunta"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "info_sistema",
       "description": "CPU, RAM, disco y batería.",
       "parameters": {
