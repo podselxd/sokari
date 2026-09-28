@@ -105,3 +105,92 @@ char *tool_atajos_de_app(const cJSON *a)
                       keys_shortcuts_for("gnome"));
 #endif
 }
+
+/* ------------------------------------------------------- crear archivos --- */
+
+/* Solo texto: nada que se pueda ejecutar (lo que lee de una página podría
+   querer dejar un programa en tu PC). */
+static bool runnable_ext(const char *name)
+{
+    static const char *const EXT[] = {".exe", ".bat", ".cmd", ".com", ".ps1", ".psm1", ".vbs", ".vbe", ".js",
+                                      ".jse", ".wsf", ".wsh", ".msi", ".msp", ".scr", ".pif", ".lnk", ".url",
+                                      ".reg", ".dll", ".sys", ".cpl", ".hta", ".jar", ".sh",  ".desktop", ".run",
+                                      ".appimage", ".deb", ".rpm", ".py", ".pyw"};
+    size_t n = strlen(name);
+    for (size_t i = 0; i < sizeof EXT / sizeof *EXT; i++) {
+        size_t k = strlen(EXT[i]);
+        if (n >= k && !strcasecmp(name + n - k, EXT[i])) return true;
+    }
+    return false;
+}
+
+#define MAX_CREATE_BYTES (1024 * 1024)
+
+char *tool_crear_archivo(const cJSON *a)
+{
+    const char *ruta = arg_str(a, "ruta"), *contenido = arg_str(a, "contenido");
+    bool agregar = arg_bool(a, "agregar");
+    char *name = str_trim(ruta);
+    if (!*name) {
+        free(name);
+        return xstrdup("Dime cómo se llama el archivo.");
+    }
+    if (runnable_ext(name)) {
+        free(name);
+        return xstrdup("Por seguridad solo creo archivos de texto (.txt, .md, .csv, .json…), nada que se pueda "
+                       "ejecutar.");
+    }
+    /* Solo el nombre: en el Escritorio. */
+    wchar_t *path;
+    if (!strchr(name, '/') && !strchr(name, '\\')) {
+        wchar_t *desk = resolve_path("escritorio"), *wn = utf8_to_wide(name);
+        path = path_join(desk, wn);
+        free(desk);
+        free(wn);
+    } else {
+        path = resolve_path(name);
+    }
+    char *r;
+    wchar_t *dir = path_dirname(path);
+    char *shown = wide_to_utf8(path);
+    size_t len = strlen(contenido);
+    if (path_is_off_limits(path)) {
+        r = xstrdup("Por seguridad no uso rutas de red ni las carpetas donde Sokari guarda su configuración y su "
+                    "memoria.");
+    } else if (len > MAX_CREATE_BYTES) {
+        r = xstrdup("Es demasiado texto para un archivo (el máximo es 1 MB).");
+    } else if (dir && *dir && !dir_exists(dir)) {
+        char *d = wide_to_utf8(dir);
+        r = str_printf("No encontré la carpeta '%s'.", d);
+        free(d);
+    } else if (dir_exists(path)) {
+        r = str_printf("'%s' es una carpeta, no un archivo.", shown);
+    } else if (file_exists(path) && !agregar) {
+        r = str_printf("Ya existe '%s' y no lo piso. Si quieres, le agrego el texto al final.", shown);
+    } else {
+        size_t old = 0;
+        char *prev = agregar && file_exists(path) ? read_file_all(path, &old) : NULL;
+        if (prev && old + len + 1 > MAX_CREATE_BYTES) {
+            r = xstrdup("El archivo quedaría de más de 1 MB: no le agrego más.");
+        } else {
+            StrBuf sb;
+            sb_init(&sb);
+            if (prev) {
+                sb_append_n(&sb, prev, old);
+                if (old && prev[old - 1] != '\n' && len) sb_append_char(&sb, '\n');
+            }
+            sb_append_n(&sb, contenido, len);
+            bool ok = write_file_atomic(path, sb.data ? sb.data : "", sb.len);
+            r = !ok ? str_printf("No pude escribir '%s'.", shown)
+                : prev ? str_printf("Listo, agregué el texto a %s.", shown)
+                       : str_printf("Listo, creé %s.", shown);
+            sb_free(&sb);
+        }
+        free(prev);
+    }
+    free(shown);
+    free(dir);
+    free(path);
+    free(name);
+    return r;
+}

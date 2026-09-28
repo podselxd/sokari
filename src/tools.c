@@ -38,6 +38,7 @@ static const ToolEntry TOOLS[] = {
     {"info_sistema", tool_info_sistema},
     {"leer_pagina", tool_leer_pagina},
     {"mover_archivo", tool_mover_archivo},
+    {"crear_archivo", tool_crear_archivo},
     {"borrar_archivo", tool_borrar_archivo},
     {"calcular", tool_calcular},
     {"registrar_dispositivo", tool_registrar_dispositivo},

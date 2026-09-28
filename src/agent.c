@@ -588,9 +588,10 @@ typedef struct {
 } ToolGroup;
 
 static const ToolGroup TOOL_GROUPS[] = {
-    {"list_files read_file buscar_archivo mover_archivo borrar_archivo",
+    {"list_files read_file buscar_archivo mover_archivo borrar_archivo crear_archivo",
      " archivo archivos carpeta carpetas descargas documento documentos escritorio pdf foto fotos imagen imagenes "
-     "mueve muevelo muevela mover borra borralo borrala borrar elimina eliminalo papelera lee leeme txt docx "},
+     "mueve muevelo muevela mover borra borralo borrala borrar elimina eliminalo papelera lee leeme txt docx "
+     "crea crealo creame hazme guarda guardalo escribe escribeme nota notas texto lista "},
     {"leer_portapapeles copiar_portapapeles", " portapapeles copia copiado copiaste copie pega pegar pegalo "},
     {"identificarse proteger_perfil", " soy llamo llego perfil contrasena quien habla "},
     {"exportar_a_obsidian", " obsidian notas "},
