@@ -54,6 +54,8 @@ void ui_preview_style(int style);
    abajo al botón arriba se movió tan poco que fue un clic y no arrastrar? */
 bool ui_click_on_sphere(int mode, int x, int y, int cw, int ch);
 bool ui_is_click(int dx, int dy);
+/* Mientras se toma una captura: las ventanas de Sokari no salen. */
+void ui_capture_exclude(bool on);
 /* ¿Un clic en la esfera la calla en este estado? Solo si habla o piensa. */
 bool ui_click_silences(int state);
 HWND ui_message_window(void);

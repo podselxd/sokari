@@ -16,10 +16,12 @@ import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+Gio._promisify(Shell.Screenshot.prototype, 'screenshot_area');
+
 // Se publica en la conexión del Shell, que ya es dueña de org.gnome.Shell:
 // nadie más puede hacerse pasar por ella mientras el Shell corre.
 const OBJECT_PATH = '/org/gnome/Shell/Extensions/Sokari';
-const API_VERSION = 2;
+const API_VERSION = 3;
 
 const IFACE_XML = `<node>
   <interface name="io.github.podselxd.SokariShell1">
@@ -29,6 +31,11 @@ const IFACE_XML = `<node>
     </method>
     <method name="ListWindows"><arg type="s" direction="out" name="json"/></method>
     <method name="Focused"><arg type="s" direction="out" name="json"/></method>
+    <method name="Desk"><arg type="s" direction="out" name="json"/></method>
+    <method name="Screenshot">
+      <arg type="s" direction="in" name="path"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
     <method name="Activate">
       <arg type="t" direction="in" name="id"/>
       <arg type="b" direction="out" name="ok"/>
@@ -336,6 +343,56 @@ class SokariService {
                 shell_ui: shellHasFocus(),
                 locked: Main.sessionMode.isLocked,
             })];
+        });
+    }
+
+    // Para que la esfera flotante se mueva sola sin tapar nada: los monitores
+    // (y lo que deja libre el panel), las ventanas de arriba a abajo, cuál
+    // tiene el foco, el cursor y si algo está en pantalla completa. Sin
+    // títulos ni contenido: solo dónde está cada cosa.
+    DeskAsync(_params, invocation) {
+        this._reply(invocation, '(s)', () => {
+            const ws = global.workspace_manager.get_active_workspace();
+            const monitors = Main.layoutManager.monitors.map((m, i) => {
+                const w = ws.get_work_area_for_monitor(i);
+                return {area: [m.x, m.y, m.width, m.height], work: [w.x, w.y, w.width, w.height]};
+            });
+            const pid = this._allowed.get(invocation.get_sender());
+            const focus = global.display.focus_window;
+            const wins = global.display.sort_windows_by_stacking(userWindows()).reverse()
+                .filter(w => w.get_pid() !== pid && !w.minimized && w.located_on_workspace(ws))
+                .map(w => {
+                    const r = w.get_frame_rect();
+                    return {r: [r.x, r.y, r.width, r.height], active: w === focus};
+                });
+            const [px, py] = global.get_pointer();
+            const fullscreen = Boolean(focus && focus.is_fullscreen()) || Main.overview.visible;
+            return [JSON.stringify({monitors, windows: wins, pointer: [px, py], fullscreen})];
+        });
+    }
+
+    // «¿Qué ves en mi pantalla?»: solo cuando se lo pides a Sokari. El monitor
+    // donde está el cursor, a un PNG en su carpeta de caché, sin sus ventanas.
+    ScreenshotAsync([path], invocation) {
+        this._reply(invocation, '(b)', async () => {
+            const cache = GLib.get_user_cache_dir();
+            if (!path.startsWith(`${cache}/sokari/`) || path.includes('..') || !path.endsWith('.png'))
+                return [false];
+            const pid = this._allowed.get(invocation.get_sender());
+            const own = global.get_window_actors().filter(a => a.meta_window.get_pid() === pid && a.visible);
+            own.forEach(a => a.hide());
+            try {
+                const [px, py] = global.get_pointer();
+                const m = Main.layoutManager.monitors.find(mm => px >= mm.x && px < mm.x + mm.width &&
+                    py >= mm.y && py < mm.y + mm.height) ?? Main.layoutManager.primaryMonitor;
+                const file = Gio.File.new_for_path(path);
+                const stream = file.replace(null, false, Gio.FileCreateFlags.PRIVATE, null);
+                await new Shell.Screenshot().screenshot_area(m.x, m.y, m.width, m.height, stream);
+                stream.close(null);
+                return [true];
+            } finally {
+                own.forEach(a => a.show());
+            }
         });
     }
 

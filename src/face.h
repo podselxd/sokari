@@ -51,6 +51,8 @@ typedef struct {
     unsigned cue_seq;
     FaceLevel level;     /* «Qué tanto se le nota» */
     bool symbols;        /* lágrima, destellos, gota de sudor, «?», enojo, «…» */
+    float look_x, look_y; /* hacia dónde va al moverse por el escritorio (-1..1); 0 = al frente */
+    bool walking;        /* caminando o saltando: rebota un poco */
 } FaceInput;
 
 typedef struct Face Face;

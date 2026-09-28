@@ -586,6 +586,25 @@
   {
     "type": "function",
     "function": {
+      "name": "ver_pantalla",
+      "description": "Toma una captura de la pantalla del usuario y la revisa una IA con visión. Úsala SOLO cuando el usuario pida explícitamente que veas o mires su pantalla (\"¿qué ves en mi pantalla?\", \"mira este error\"). Gasta mucho cupo.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pregunta": {
+            "type": "string",
+            "description": "qué quiere saber de lo que hay en pantalla"
+          }
+        },
+        "required": [
+          "pregunta"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "info_sistema",
       "description": "CPU, RAM, disco y batería.",
       "parameters": {
@@ -608,6 +627,33 @@
         },
         "required": [
           "url"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "crear_archivo",
+      "description": "Crea un archivo de texto (.txt, .md, .csv, .json…) con el contenido que diga el usuario, o le agrega texto al final. Solo el nombre: va al Escritorio. No sobrescribe ni crea programas.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ruta": {
+            "type": "string",
+            "description": "nombre o ruta, p. ej. lista.txt o C:\\Users\\yo\\Documents\\notas.md"
+          },
+          "contenido": {
+            "type": "string"
+          },
+          "agregar": {
+            "type": "boolean",
+            "description": "true para agregarlo al final de uno que ya existe"
+          }
+        },
+        "required": [
+          "ruta",
+          "contenido"
         ]
       }
     }

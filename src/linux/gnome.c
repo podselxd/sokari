@@ -353,3 +353,66 @@ bool session_lock(void)
     free(out);
     return code == 0;
 }
+
+/* ------------------------------------------------------- el escritorio --- */
+
+static bool rect_from(const cJSON *a, DeskRect *r)
+{
+    if (!cJSON_IsArray(a) || cJSON_GetArraySize(a) != 4) return false;
+    int v[4];
+    for (int i = 0; i < 4; i++) {
+        const cJSON *n = cJSON_GetArrayItem(a, i);
+        if (!cJSON_IsNumber(n)) return false;
+        v[i] = n->valueint;
+    }
+    *r = (DeskRect){v[0], v[1], v[2], v[3]};
+    return true;
+}
+
+GnomeStatus gnome_desk(DeskView *v)
+{
+    memset(v, 0, sizeof *v);
+    GVariant *r;
+    GnomeStatus st = call("Desk", NULL, "(s)", 1500, &r);
+    if (!r) return st;
+    const char *json = NULL;
+    g_variant_get(r, "(&s)", &json);
+    cJSON *j = cJSON_Parse(json);
+    g_variant_unref(r);
+    if (!j) return GN_ERROR;
+    const cJSON *m;
+    cJSON_ArrayForEach(m, cJSON_GetObjectItem(j, "monitors")) {
+        if (v->nmon >= DESK_MAX_MONITORS) break;
+        DeskMonitor *dm = &v->mon[v->nmon];
+        if (rect_from(cJSON_GetObjectItem(m, "area"), &dm->area) && rect_from(cJSON_GetObjectItem(m, "work"), &dm->work))
+            v->nmon++;
+    }
+    const cJSON *w;
+    cJSON_ArrayForEach(w, cJSON_GetObjectItem(j, "windows")) {
+        if (v->nwin >= DESK_MAX_WINDOWS) break;
+        if (!rect_from(cJSON_GetObjectItem(w, "r"), &v->win[v->nwin].r)) continue;
+        v->win[v->nwin].active = cJSON_IsTrue(cJSON_GetObjectItem(w, "active"));
+        v->nwin++;
+    }
+    const cJSON *p = cJSON_GetObjectItem(j, "pointer");
+    if (cJSON_IsArray(p) && cJSON_GetArraySize(p) == 2) {
+        v->cursor_x = cJSON_GetArrayItem(p, 0)->valueint;
+        v->cursor_y = cJSON_GetArrayItem(p, 1)->valueint;
+    }
+    v->fullscreen = cJSON_IsTrue(cJSON_GetObjectItem(j, "fullscreen"));
+    cJSON_Delete(j);
+    return v->nmon ? GN_OK : GN_ERROR;
+}
+
+GnomeStatus gnome_screenshot(const char *png_path, bool *ok)
+{
+    GVariant *r;
+    GnomeStatus st = call("Screenshot", g_variant_new("(s)", png_path), "(b)", 10000, &r);
+    gboolean b = FALSE;
+    if (r) {
+        g_variant_get(r, "(b)", &b);
+        g_variant_unref(r);
+    }
+    if (ok) *ok = b;
+    return st;
+}

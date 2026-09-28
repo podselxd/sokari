@@ -58,7 +58,7 @@ typedef struct {
     TtsVoice *voices;
     int nvoices;
     /* General */
-    GtkWidget *autostart, *full, *sound, *update;
+    GtkWidget *autostart, *full, *sound, *update, *desk_move, *desk_after, *screen_view;
     /* Skills */
     GtkWidget *skills[16], *city, *mine;
     /* Tus PCs */
@@ -712,6 +712,13 @@ static GtkWidget *page_general(Form *f, const AppConfig *cfg)
     int r = 0;
     f->autostart = add_wide(g, r++, check("Abrir Sokari al iniciar tu sesión", autostart_is_enabled()));
     add_wide(g, r++, help_label("Atajo: Ctrl+Alt+J para hablarle sin decir «Hey Sokari»."));
+    f->desk_move = add_wide(g, r++, check("¿Puede Sokari moverse por el escritorio? (esfera flotante)", cfg->desk_move));
+    static const char *const AFTER[] = {"2 segundos", "5 segundos", "10 segundos", "30 segundos"};
+    int after = 1;
+    for (int i = 0; i < 4; i++)
+        if (DESK_AFTER_CHOICES[i] == cfg->desk_after) after = i;
+    f->desk_after = add_row(g, r++, "Empieza después de", choice(AFTER, 4, after));
+    f->screen_view = add_wide(g, r++, check("Puede ver mi pantalla (solo cuando se lo pides)", cfg->screen_view));
     f->full = add_wide(g, r++, check("Acceso completo (menos borrar): no te pregunta nada", cfg->full_access));
     add_wide(g, r++,
              help_label("Prendido, hace todo sin preguntarte: mover archivos, mandar mensajes, subir archivos, guardar "
@@ -1033,6 +1040,10 @@ static bool save(Form *f)
     cfg.duck = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->duck));
     cfg.barge_in = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->barge_in));
     cfg.full_access = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->full));
+    cfg.desk_move = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->desk_move));
+    cfg.screen_view = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->screen_view));
+    int after = gtk_combo_box_get_active(GTK_COMBO_BOX(f->desk_after));
+    cfg.desk_after = DESK_AFTER_CHOICES[after >= 0 && after < 4 ? after : 1];
     cfg.autostart = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(f->autostart));
     set_str(&cfg.city, entry_text(f->city));
     StrBuf off;

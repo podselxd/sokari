@@ -4,6 +4,7 @@
 #include "log.h"
 #include "memory.h"
 #include "tools.h"
+#include "pantalla.h"
 #include "util.h"
 
 typedef struct {
@@ -36,8 +37,10 @@ static const ToolEntry TOOLS[] = {
     {"leer_portapapeles", tool_leer_portapapeles},
     {"copiar_portapapeles", tool_copiar_portapapeles},
     {"info_sistema", tool_info_sistema},
+    {"ver_pantalla", tool_ver_pantalla},
     {"leer_pagina", tool_leer_pagina},
     {"mover_archivo", tool_mover_archivo},
+    {"crear_archivo", tool_crear_archivo},
     {"borrar_archivo", tool_borrar_archivo},
     {"calcular", tool_calcular},
     {"registrar_dispositivo", tool_registrar_dispositivo},

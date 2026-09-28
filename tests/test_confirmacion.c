@@ -15,6 +15,7 @@
 #include "resources.h"
 #include "affect.h"
 #include "agent.h"
+#include "desk.h"
 #include "skills.h"
 #include "config.h"
 #include "groq.h"
@@ -62,6 +63,14 @@ static void script(const char *a, const char *b, const char *c)
     if (a) g_script[g_script_len++] = a;
     if (b) g_script[g_script_len++] = b;
     if (c) g_script[g_script_len++] = c;
+}
+
+/* Sin red: la IA con visión no contesta (ver_pantalla no se prueba aquí). */
+char *groq_vision(const char *prompt, const char *jpeg_b64, int *tokens, GroqError *err)
+{
+    (void)prompt, (void)jpeg_b64, (void)err;
+    if (tokens) *tokens = 0;
+    return NULL;
 }
 
 /* Cada paso del guion es "texto" (respuesta final) o "tool:nombre {json}; tool:nombre {json}". */
@@ -340,6 +349,24 @@ static void test_despedidas(void)
         free(t.reply);
     }
     check(none_bye, "«nada más abre la calculadora» o «de hoy hasta mañana» no son despedidas");
+    conv_destroy(c);
+}
+
+static void test_quieta(void)
+{
+    printf("-- quieta / ya puedes moverte --\n");
+    Conversation *c = conv_create(false);
+    script("(no se debe usar)", NULL, NULL);
+    TurnResult t = say_turn(c, "Sokari, quieta");
+    check(desk_held() && t.keep_going && g_script_pos == 0, "«quieta» la detiene, sin preguntarle al modelo");
+    free(t.reply);
+    t = say_turn(c, "ya puedes moverte");
+    check(!desk_held() && g_script_pos == 0, "«ya puedes moverte» la suelta");
+    free(t.reply);
+    script("Listo.", NULL, NULL);
+    t = say_turn(c, "no te muevas de esta página, léela toda por favor");
+    check(!desk_held(), "«no te muevas de esta página…» no es para ella");
+    free(t.reply);
     conv_destroy(c);
 }
 
@@ -1135,6 +1162,7 @@ int wmain(void)
     test_skill_ia();
     test_menos_preguntas();
     test_despedidas();
+    test_quieta();
     test_respuesta_basura();
     test_acceso_completo();
     test_detecta_permiso();

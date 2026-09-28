@@ -42,7 +42,7 @@ bool tool_needs_confirmation(const char *name, const cJSON *args)
     static const char *const ALWAYS[] = {"mover_archivo",         "borrar_archivo",        "create_macro",
                                          "crear_skill",
                                          "run_macro",             "registrar_dispositivo", "gestionar_dispositivo",
-                                         "subir_archivo"};
+                                         "subir_archivo",         "crear_archivo"};
     return in_list(name, ALWAYS, sizeof ALWAYS / sizeof *ALWAYS);
 }
 
@@ -65,6 +65,7 @@ char *tool_describe_action(const char *name, const cJSON *args)
                                  : !strcmp(name, "type_text")              ? "texto"
                                  : !strcmp(name, "mover_archivo")          ? "origen"
                                  : !strcmp(name, "borrar_archivo")         ? "ruta"
+                                 : !strcmp(name, "crear_archivo")          ? "ruta"
                                  : !strcmp(name, "create_macro")           ? "name"
                                  : !strcmp(name, "crear_skill")            ? "nombre"
                                  : !strcmp(name, "run_macro")              ? "name"
@@ -82,6 +83,8 @@ char *tool_describe_action(const char *name, const cJSON *args)
         char *d = clip(arg_str(args, "destino_carpeta"));
         r = str_printf("mover %s a %s", a, d);
         free(d);
+    } else if (!strcmp(name, "crear_archivo")) {
+        r = str_printf(arg_bool(args, "agregar") ? "agregarle texto a %s" : "crear el archivo %s", a);
     } else if (!strcmp(name, "borrar_archivo")) {
         r = str_printf("mandar a la papelera %s", a);
     } else if (!strcmp(name, "create_macro")) {

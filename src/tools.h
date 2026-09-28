@@ -65,6 +65,7 @@ char *tool_list_files(const cJSON *a);
 char *tool_read_file(const cJSON *a);
 char *tool_buscar_archivo(const cJSON *a);
 char *tool_mover_archivo(const cJSON *a);
+char *tool_crear_archivo(const cJSON *a);
 char *tool_borrar_archivo(const cJSON *a);
 wchar_t *known_folder_alias(const char *alias);
 /* "descargas", una ruta con %USERPROFILE% o entre comillas… (heap). */

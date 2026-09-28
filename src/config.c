@@ -126,6 +126,9 @@ static void defaults(AppConfig *c)
     c->end_silence = 1;
     c->duck = true;
     c->barge_in = true;
+    c->desk_move = true;
+    c->desk_after = 5;
+    c->screen_view = true;
 }
 
 static void apply_kv(AppConfig *c, const char *key, const char *value)
@@ -164,6 +167,15 @@ static void apply_kv(AppConfig *c, const char *key, const char *value)
         c->duck = parse_bool(value);
     } else if (!strcmp(key, "SOKARI_BARGE_IN")) {
         c->barge_in = parse_bool(value);
+    } else if (!strcmp(key, "SOKARI_DESK_MOVE")) {
+        c->desk_move = parse_bool(value);
+    } else if (!strcmp(key, "SOKARI_DESK_AFTER")) {
+        int s = atoi(value);
+        c->desk_after = 5;
+        for (int i = 0; i < 4; i++)
+            if (s == DESK_AFTER_CHOICES[i]) c->desk_after = s;
+    } else if (!strcmp(key, "SOKARI_SCREEN_VIEW")) {
+        c->screen_view = parse_bool(value);
     } else if (!strcmp(key, "SOKARI_SPHERE_STYLE")) {
         c->sphere_style = sphere_style_from_key(value);
     } else if (!strcmp(key, "SOKARI_ANIMATION")) {
@@ -276,6 +288,9 @@ static bool save_locked(void)
     sb_appendf(&sb, "SOKARI_END_SILENCE=%s\n", g_cfg.end_silence == 0 ? "corta" : g_cfg.end_silence == 2 ? "larga" : "normal");
     sb_appendf(&sb, "SOKARI_DUCK=%d\n", g_cfg.duck ? 1 : 0);
     sb_appendf(&sb, "SOKARI_BARGE_IN=%d\n", g_cfg.barge_in ? 1 : 0);
+    sb_appendf(&sb, "SOKARI_DESK_MOVE=%d\n", g_cfg.desk_move ? 1 : 0);
+    sb_appendf(&sb, "SOKARI_DESK_AFTER=%d\n", g_cfg.desk_after);
+    sb_appendf(&sb, "SOKARI_SCREEN_VIEW=%d\n", g_cfg.screen_view ? 1 : 0);
     sb_appendf(&sb, "SOKARI_ORB_POS=%d,%d\n", g_cfg.orb_x, g_cfg.orb_y);
     sb_appendf(&sb, "SOKARI_WINDOW=%d,%d,%d,%d\n", g_cfg.win_x, g_cfg.win_y, g_cfg.win_w, g_cfg.win_h);
     sb_appendf(&sb, "SOKARI_SUBTITLES=%d\n", g_cfg.subtitles ? 1 : 0);
@@ -455,6 +470,32 @@ bool config_duck(void)
 {
     AcquireSRWLockShared(&g_lock);
     bool v = g_cfg.duck;
+    ReleaseSRWLockShared(&g_lock);
+    return v;
+}
+
+const int DESK_AFTER_CHOICES[4] = {2, 5, 10, 30};
+
+bool config_desk_move(void)
+{
+    AcquireSRWLockShared(&g_lock);
+    bool v = g_cfg.desk_move;
+    ReleaseSRWLockShared(&g_lock);
+    return v;
+}
+
+int config_desk_after(void)
+{
+    AcquireSRWLockShared(&g_lock);
+    int v = g_cfg.desk_after;
+    ReleaseSRWLockShared(&g_lock);
+    return v;
+}
+
+bool config_screen_view(void)
+{
+    AcquireSRWLockShared(&g_lock);
+    bool v = g_cfg.screen_view;
     ReleaseSRWLockShared(&g_lock);
     return v;
 }

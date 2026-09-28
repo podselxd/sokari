@@ -9,6 +9,7 @@
 #include "agent.h"
 #include "app.h"
 #include "config.h"
+#include "desk.h"
 #include "groq.h"
 #include "intents.h"
 #include "skills.h"
@@ -490,6 +491,8 @@ static bool must_confirm(const Conversation *c, const char *name, const cJSON *a
        el modelo espera tu sí, aunque tengas acceso completo. Las que pides tú
        ("dale enter") no pasan por aquí. */
     if (!strcmp(name, "presionar_teclas") && history_has_outside_text(c)) return true;
+    /* Ver tu pantalla porque lo pidió algo de afuera (una página), nunca sin tu sí. */
+    if (!strcmp(name, "ver_pantalla") && history_has_outside_text(c)) return true;
     return !config_full_access() && tool_needs_confirmation(name, args) && history_has_outside_text(c);
 }
 
@@ -588,9 +591,11 @@ typedef struct {
 } ToolGroup;
 
 static const ToolGroup TOOL_GROUPS[] = {
-    {"list_files read_file buscar_archivo mover_archivo borrar_archivo",
+    {"list_files read_file buscar_archivo mover_archivo borrar_archivo crear_archivo",
      " archivo archivos carpeta carpetas descargas documento documentos escritorio pdf foto fotos imagen imagenes "
-     "mueve muevelo muevela mover borra borralo borrala borrar elimina eliminalo papelera lee leeme txt docx "},
+     "mueve muevelo muevela mover borra borralo borrala borrar elimina eliminalo papelera lee leeme txt docx "
+     "crea crealo creame hazme guarda guardalo escribe escribeme nota notas texto lista "},
+    {"ver_pantalla", " pantalla monitor ves viendo mira mirar observa checa error ventana captura "},
     {"leer_portapapeles copiar_portapapeles", " portapapeles copia copiado copiaste copie pega pegar pegalo "},
     {"identificarse proteger_perfil", " soy llamo llego perfil contrasena quien habla "},
     {"exportar_a_obsidian", " obsidian notas "},
@@ -681,7 +686,8 @@ static bool is_action_tool(const char *name)
                                       "crear_recordatorio", "run_macro",   "focus_window",     "type_text",
                                       "gestionar_dispositivo", "cambiar_permisos", "mover_archivo", "copiar_portapapeles",
                                       "guardar_dato",   "registrar_dispositivo", "create_macro", "exportar_a_obsidian",
-                                      "borrar_memoria_reciente", "presionar_teclas", "ir_a_pestana", "subir_archivo"};
+                                      "borrar_memoria_reciente", "presionar_teclas", "ir_a_pestana", "subir_archivo",
+                                      "crear_archivo"};
     for (size_t i = 0; i < sizeof ACT / sizeof *ACT; i++)
         if (!strcmp(name, ACT[i])) return true;
     return false;
@@ -1101,6 +1107,35 @@ static TurnResult process_turn(Conversation *c, const char *text)
         memory_persist("assistant", r.reply);
         r.keep_going = true;
         return r;
+    }
+    /* «Quieta» / «ya puedes moverte» (moverse sola por el escritorio): sin la
+       IA. Solo si es casi toda la frase: «no te muevas de esta página» no es. */
+    {
+        static const char *const STAY[] = {" quieta ", " quedate quieta ", " no te muevas ", " deja de moverte ",
+                                           " quedate ahi ", " para de moverte ", " ya no te muevas ",
+                                           " no te andes moviendo ", " estate quieta "};
+        static const char *const GO[] = {" ya puedes moverte ", " puedes moverte ", " ya te puedes mover ",
+                                         " muevete ", " ya muevete ", " date una vuelta ", " ve a pasear "};
+        char *nm = intents_normalize(text);
+        int words = 0;
+        for (const char *p = nm; *p; p++)
+            if (*p != ' ' && p[-1] == ' ') words++;
+        int desk = -1;
+        for (size_t i = 0; i < sizeof STAY / sizeof *STAY && desk < 0 && words <= 5; i++)
+            if (strstr(nm, STAY[i])) desk = 0;
+        for (size_t i = 0; i < sizeof GO / sizeof *GO && desk < 0 && words <= 5; i++)
+            if (strstr(nm, GO[i])) desk = 1;
+        free(nm);
+        if (desk >= 0) {
+            desk_hold(desk == 0);
+            memory_persist("user", text);
+            r.reply = xstrdup(desk ? (config_desk_move() ? "¡Va! Me doy una vuelta." :
+                                      "Me encantaría, pero en Configuración está apagado que me mueva por el escritorio.")
+                                   : "Va, me quedo quieta.");
+            memory_persist("assistant", r.reply);
+            r.keep_going = true;
+            return r;
+        }
     }
     /* "Ignora todo lo anterior": empezar de cero, sin pasar por el modelo (que
        a veces lo tomaba como un intento de engañarlo y se negaba). */

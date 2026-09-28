@@ -75,6 +75,8 @@ struct Face {
     double next_blink, blink_at, blink2_at;
     double idle_since, next_look, next_saccade;
     float saccade_x, saccade_y, gaze_x, gaze_y;
+    float look_x, look_y, walk; /* hacia dónde va y cuánto camina (se acercan suave) */
+    double walk_phase;
     float act[4]; /* cuánto de cada actividad (se acercan suave) */
     double think_t0;
 };
@@ -517,6 +519,21 @@ void face_step(Face *f, double dt, const FaceInput *in, SphereFace *out)
     f->gaze_y += (f->saccade_y - f->gaze_y) * kg;
     g.gx += f->gaze_x * (1 - at);
     g.gy += f->gaze_y * (1 - at);
+
+    /* Moviéndose por el escritorio: mira (y voltea un poco la cara) hacia
+       donde va y, caminando, rebota a cada paso. */
+    float kl = 1 - expf(-(float)dt / 0.2f);
+    f->look_x += (clampf(in->look_x, -1, 1) - f->look_x) * kl;
+    f->look_y += (clampf(in->look_y, -1, 1) - f->look_y) * kl;
+    f->walk += ((in->walking ? 1.0f : 0.0f) - f->walk) * kl;
+    g.gx += 0.15f * f->look_x;
+    g.gy += 0.1f * f->look_y;
+    g.fx += 0.08f * f->look_x;
+    g.fy += 0.05f * f->look_y;
+    f->walk_phase += dt * 2 * M_PI * 2.2; /* dos pasos y pico por segundo */
+    float step = fabsf(sinf((float)f->walk_phase));
+    g.fy -= 0.035f * f->walk * step;
+    g.stretch += 0.04f * f->walk * (step - 0.5f);
 
     /* El gesto de ahora (y el anterior, que se apaga), con su envolvente. */
     GOut ge, gl;

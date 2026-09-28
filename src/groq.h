@@ -43,6 +43,11 @@ int groq_pick_models(const char *provider, const char *models_json, char ***out)
 void groq_set_base_url(const char *provider, const char *url);
 void groq_reset_models(void);
 
+/* Le pregunta a una IA que ve imágenes (de las keys que tengas) sobre una
+   captura en JPEG (base64). *tokens: cuánto costó la entrada. NULL si
+   ninguna pudo; err->detail "sin-vision" si ninguna de tus keys tiene. */
+char *groq_vision(const char *prompt, const char *jpeg_b64, int *tokens, GroqError *err);
+
 unsigned char *wav_encode(const int16_t *pcm, size_t samples, int sample_rate, size_t *out_len);
 
 #endif
